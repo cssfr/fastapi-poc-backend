@@ -14,6 +14,11 @@ DUMMY_ITEMS = [
     {"id": 2, "name": "Second item", "owner": "user-uuid-2"},
 ]
 
+
+@app.get("/")
+async def health_check():
+    return {"status": "ok"}
+
 @app.get("/items", response_model=List[Item])
 async def read_items(user_id: str = Depends(verify_token)):
     items = [i for i in DUMMY_ITEMS if i["owner"] == user_id]
