@@ -10,7 +10,7 @@ class Item(BaseModel):
     name: str
 
 DUMMY_ITEMS = [
-    {"id": 1, "name": "First item", "owner": "user-uuid-1"},
+    {"id": 1, "name": "First item", "owner": "cca3ecd8-66db-43ce-9525-c3a919b47be1"},
     {"id": 2, "name": "Second item", "owner": "user-uuid-2"},
 ]
 
