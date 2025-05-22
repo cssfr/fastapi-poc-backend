@@ -11,7 +11,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[
       "http://localhost:5173",                         # your local Vite
-      "https://your-frontend-domain.backtesting.theworkpc.com"  # your Coolify URL
+      "https://react-dev.backtesting.theworkpc.com/"  # your Coolify URL
     ],
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
