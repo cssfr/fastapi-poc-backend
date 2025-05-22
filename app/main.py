@@ -1,9 +1,23 @@
 from fastapi import FastAPI, Depends, HTTPException, status
+from fastapi.middleware.cors import CORSMiddleware
 from .auth import verify_token
 from typing import List
 from pydantic import BaseModel
 
 app = FastAPI()
+
+# ← add this block
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+      "http://localhost:5173",                         # your local Vite
+      "https://your-frontend-domain.backtesting.theworkpc.com"  # your Coolify URL
+    ],
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["*"],
+)
+# ↑ end CORS block
 
 class Item(BaseModel):
     id: int
