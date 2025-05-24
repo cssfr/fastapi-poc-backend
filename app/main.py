@@ -80,123 +80,6 @@ async def create_backtest(
         logger.error(f"Error creating backtest: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to fetch trades"
-        )
-
-# Strategy endpoints
-@app.post("/api/strategies", response_model=StrategyResponse, status_code=status.HTTP_201_CREATED)
-async def create_strategy(
-    strategy_data: StrategyCreate,
-    user_id: str = Depends(verify_token)
-):
-    """Create a new strategy"""
-    try:
-        return await StrategyService.create_strategy(user_id, strategy_data)
-    except Exception as e:
-        logger.error(f"Error creating strategy: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to create strategy"
-        )
-
-@app.get("/api/strategies", response_model=List[StrategyResponse])
-async def get_strategies(
-    include_public: bool = True,
-    user_id: str = Depends(verify_token)
-):
-    """Get all strategies for the current user (and public ones if specified)"""
-    try:
-        return await StrategyService.get_user_strategies(user_id, include_public)
-    except Exception as e:
-        logger.error(f"Error fetching strategies: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to fetch strategies"
-        )
-
-@app.get("/api/strategies/{strategy_id}", response_model=StrategyResponse)
-async def get_strategy(
-    strategy_id: str,
-    user_id: str = Depends(verify_token)
-):
-    """Get a specific strategy"""
-    try:
-        strategy = await StrategyService.get_strategy_by_id(user_id, strategy_id)
-        if not strategy:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Strategy not found"
-            )
-        return strategy
-    except ValueError:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid strategy ID"
-        )
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error fetching strategy: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to fetch strategy"
-        )
-
-@app.put("/api/strategies/{strategy_id}", response_model=StrategyResponse)
-async def update_strategy(
-    strategy_id: str,
-    update_data: StrategyUpdate,
-    user_id: str = Depends(verify_token)
-):
-    """Update a strategy"""
-    try:
-        strategy = await StrategyService.update_strategy(user_id, strategy_id, update_data)
-        if not strategy:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Strategy not found"
-            )
-        return strategy
-    except ValueError:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid strategy ID"
-        )
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error updating strategy: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to update strategy"
-        )
-
-@app.delete("/api/strategies/{strategy_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_strategy(
-    strategy_id: str,
-    user_id: str = Depends(verify_token)
-):
-    """Delete a strategy"""
-    try:
-        success = await StrategyService.delete_strategy(user_id, strategy_id)
-        if not success:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Strategy not found"
-            )
-    except ValueError:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid strategy ID"
-        )
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error deleting strategy: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to delete strategy"
-        ),
             detail="Failed to create backtest"
         )
 
@@ -336,4 +219,121 @@ async def get_backtest_trades(
     except Exception as e:
         logger.error(f"Error fetching trades: {e}")
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to fetch trades"
+        )
+
+# Strategy endpoints
+@app.post("/api/strategies", response_model=StrategyResponse, status_code=status.HTTP_201_CREATED)
+async def create_strategy(
+    strategy_data: StrategyCreate,
+    user_id: str = Depends(verify_token)
+):
+    """Create a new strategy"""
+    try:
+        return await StrategyService.create_strategy(user_id, strategy_data)
+    except Exception as e:
+        logger.error(f"Error creating strategy: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to create strategy"
+        )
+
+@app.get("/api/strategies", response_model=List[StrategyResponse])
+async def get_strategies(
+    include_public: bool = True,
+    user_id: str = Depends(verify_token)
+):
+    """Get all strategies for the current user (and public ones if specified)"""
+    try:
+        return await StrategyService.get_user_strategies(user_id, include_public)
+    except Exception as e:
+        logger.error(f"Error fetching strategies: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to fetch strategies"
+        )
+
+@app.get("/api/strategies/{strategy_id}", response_model=StrategyResponse)
+async def get_strategy(
+    strategy_id: str,
+    user_id: str = Depends(verify_token)
+):
+    """Get a specific strategy"""
+    try:
+        strategy = await StrategyService.get_strategy_by_id(user_id, strategy_id)
+        if not strategy:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Strategy not found"
+            )
+        return strategy
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid strategy ID"
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error fetching strategy: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to fetch strategy"
+        )
+
+@app.put("/api/strategies/{strategy_id}", response_model=StrategyResponse)
+async def update_strategy(
+    strategy_id: str,
+    update_data: StrategyUpdate,
+    user_id: str = Depends(verify_token)
+):
+    """Update a strategy"""
+    try:
+        strategy = await StrategyService.update_strategy(user_id, strategy_id, update_data)
+        if not strategy:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Strategy not found"
+            )
+        return strategy
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid strategy ID"
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating strategy: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to update strategy"
+        )
+
+@app.delete("/api/strategies/{strategy_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_strategy(
+    strategy_id: str,
+    user_id: str = Depends(verify_token)
+):
+    """Delete a strategy"""
+    try:
+        success = await StrategyService.delete_strategy(user_id, strategy_id)
+        if not success:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Strategy not found"
+            )
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid strategy ID"
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting strategy: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to delete strategy"
+        )
