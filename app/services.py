@@ -137,6 +137,7 @@ class StrategyService:
     @staticmethod
     async def create_strategy(user_id: str, strategy_data: StrategyCreate) -> StrategyResponse:
         """Create a new strategy"""
+        import json
         query = """
             INSERT INTO strategies (user_id, name, description, parameters, is_public)
             VALUES ($1, $2, $3, $4, $5)
@@ -147,7 +148,7 @@ class StrategyService:
             uuid.UUID(user_id),
             strategy_data.name,
             strategy_data.description,
-            strategy_data.parameters,
+            json.dumps(strategy_data.parameters),  # Convert dict to JSON string
             strategy_data.is_public
         )
         return StrategyResponse(**row)
@@ -184,6 +185,7 @@ class StrategyService:
     @staticmethod
     async def update_strategy(user_id: str, strategy_id: str, update_data: StrategyUpdate) -> Optional[StrategyResponse]:
         """Update a strategy (only if owned by user)"""
+        import json
         # Build dynamic update query
         update_fields = []
         values = []
@@ -191,8 +193,13 @@ class StrategyService:
         
         for field, value in update_data.dict(exclude_unset=True).items():
             if value is not None:
-                update_fields.append(f"{field} = ${param_count}")
-                values.append(value)
+                if field == 'parameters':
+                    # Convert parameters dict to JSON string
+                    update_fields.append(f"{field} = ${param_count}")
+                    values.append(json.dumps(value))
+                else:
+                    update_fields.append(f"{field} = ${param_count}")
+                    values.append(value)
                 param_count += 1
         
         if not update_fields:
