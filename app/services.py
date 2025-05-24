@@ -151,11 +151,15 @@ class StrategyService:
             json.dumps(strategy_data.parameters),  # Convert dict to JSON string
             strategy_data.is_public
         )
+        # Parse JSON string back to dict for parameters in response
+        if row and isinstance(row['parameters'], str):
+            row['parameters'] = json.loads(row['parameters'])
         return StrategyResponse(**row)
     
     @staticmethod
     async def get_user_strategies(user_id: str, include_public: bool = True) -> List[StrategyResponse]:
         """Get strategies for a user (including public ones if specified)"""
+        import json
         if include_public:
             query = """
                 SELECT * FROM strategies 
@@ -170,17 +174,29 @@ class StrategyService:
             """
         
         rows = await db.fetch_all(query, uuid.UUID(user_id))
-        return [StrategyResponse(**row) for row in rows]
+        strategies = []
+        for row in rows:
+            # Parse JSON string back to dict for parameters
+            if isinstance(row['parameters'], str):
+                row['parameters'] = json.loads(row['parameters'])
+            strategies.append(StrategyResponse(**row))
+        return strategies
     
     @staticmethod
     async def get_strategy_by_id(user_id: str, strategy_id: str) -> Optional[StrategyResponse]:
         """Get a specific strategy by ID"""
+        import json
         query = """
             SELECT * FROM strategies 
             WHERE id = $1 AND (user_id = $2 OR is_public = true)
         """
         row = await db.fetch_one(query, uuid.UUID(strategy_id), uuid.UUID(user_id))
-        return StrategyResponse(**row) if row else None
+        if row:
+            # Parse JSON string back to dict for parameters
+            if isinstance(row['parameters'], str):
+                row['parameters'] = json.loads(row['parameters'])
+            return StrategyResponse(**row)
+        return None
     
     @staticmethod
     async def update_strategy(user_id: str, strategy_id: str, update_data: StrategyUpdate) -> Optional[StrategyResponse]:
@@ -216,7 +232,12 @@ class StrategyService:
         """
         
         row = await db.fetch_one(query, *values)
-        return StrategyResponse(**row) if row else None
+        if row:
+            # Parse JSON string back to dict for parameters
+            if isinstance(row['parameters'], str):
+                row['parameters'] = json.loads(row['parameters'])
+            return StrategyResponse(**row)
+        return None
     
     @staticmethod
     async def delete_strategy(user_id: str, strategy_id: str) -> bool:
