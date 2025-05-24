@@ -1,7 +1,8 @@
 from fastapi import FastAPI, Depends, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import HTTPAuthorizationCredentials
 from contextlib import asynccontextmanager
-from .auth import verify_token
+from .auth import verify_token, get_user_info, security
 from .database import db
 from .models import (
     BacktestCreate, BacktestResponse, BacktestUpdate,
@@ -60,11 +61,13 @@ async def read_items(user_id: str = Depends(verify_token)):
 
 # User endpoints
 @app.get("/api/user", response_model=UserResponse)
-async def get_current_user(user_id: str = Depends(verify_token)):
+async def get_current_user(cred: HTTPAuthorizationCredentials = Depends(security)):
     """Get current user profile"""
-    # For now, we'll create a user with a placeholder email
-    # In a real app, you'd extract email from the JWT token
-    email = f"user-{user_id}@example.com"  # Replace with actual email extraction
+    # Extract real user info from JWT token
+    user_info = get_user_info(cred)
+    user_id = user_info["user_id"]
+    email = user_info["email"]
+    
     return await UserService.get_or_create_user(user_id, email)
 
 # Backtest endpoints
