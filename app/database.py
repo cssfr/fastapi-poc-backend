@@ -18,6 +18,7 @@ class Database:
     async def connect(self):
         """Initialize database connection pool"""
         try:
+            # Supabase-friendly pool settings
             self._pool = await asyncpg.create_pool(
                 DATABASE_URL,
                 min_size=1,
