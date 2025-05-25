@@ -21,8 +21,11 @@ class Database:
             self._pool = await asyncpg.create_pool(
                 DATABASE_URL,
                 min_size=1,
-                max_size=10,
-                command_timeout=60
+                max_size=5,  # Reduced for Supabase
+                max_queries=50000,
+                max_inactive_connection_lifetime=300,
+                command_timeout=60,
+                ssl='require'
             )
             logger.info("Database connection pool created successfully")
         except Exception as e:
