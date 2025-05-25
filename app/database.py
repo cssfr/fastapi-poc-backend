@@ -3,6 +3,7 @@ import asyncpg
 from typing import Optional, List, Dict, Any
 from contextlib import asynccontextmanager
 import logging
+import urllib.parse
 
 logger = logging.getLogger(__name__)
 
@@ -18,7 +19,14 @@ class Database:
     async def connect(self):
         """Initialize database connection pool"""
         try:
-            # Supabase-friendly pool settings
+            # Parse DATABASE_URL to check if SSL is needed
+            parsed = urllib.parse.urlparse(DATABASE_URL)
+            
+            # Determine SSL mode
+            ssl_mode = None
+            if parsed.hostname and not parsed.hostname.endswith('.local'):
+                ssl_mode = 'prefer'  # Try SSL first, fall back if not available
+            
             self._pool = await asyncpg.create_pool(
                 DATABASE_URL,
                 min_size=1,
@@ -26,7 +34,7 @@ class Database:
                 max_queries=50000,
                 max_inactive_connection_lifetime=300,
                 command_timeout=60,
-                ssl='require'
+                ssl=ssl_mode
             )
             logger.info("Database connection pool created successfully")
         except Exception as e:
