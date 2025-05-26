@@ -1,0 +1,21 @@
+# Python virtual environment
+.venv/
+
+# Codespaces container
+#.devcontainer/
+
+# Byte-compiled / cache files
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Editor/IDE settings
+.vscode/
+*.code-workspace
+
+# Environment and secrets
+.env
+.env.*
+
+# Lockfiles (optional if not using in production)
+requirements.lock.txt
