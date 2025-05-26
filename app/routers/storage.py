@@ -4,6 +4,7 @@ from typing import List
 from ..auth import verify_token
 from ..minio_client import minio_service
 import logging
+import os
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +23,7 @@ async def get_storage_status(user_id: str = Depends(verify_token)):
 
 @router.get("/buckets", response_model=List[str])
 async def list_buckets(user_id: str = Depends(verify_token)):
-    """List all available storage buckets"""
+    """List available storage buckets (or return configured bucket for restricted access)"""
     if not minio_service.is_available():
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -30,14 +31,15 @@ async def list_buckets(user_id: str = Depends(verify_token)):
         )
     
     try:
+        # Try to list all buckets
         buckets = await minio_service.list_buckets()
         return buckets
     except Exception as e:
-        logger.error(f"Failed to list buckets: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to list storage buckets"
-        )
+        # If we can't list buckets (restricted access), return the configured bucket
+        logger.warning(f"Cannot list all buckets (restricted access): {e}")
+        # Return the configured bucket if we know it exists
+        configured_bucket = os.getenv("MINIO_BUCKET", "dukascopy-node")
+        return [configured_bucket]
 
 @router.get("/objects")
 async def list_objects(
