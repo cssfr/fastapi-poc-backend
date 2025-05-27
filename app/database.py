@@ -56,6 +56,13 @@ class Database:
         async with self._pool.acquire() as connection:
             yield connection
     
+    @asynccontextmanager
+    async def transaction(self):
+        """Create a database transaction context"""
+        async with self.get_connection() as conn:
+            async with conn.transaction():
+                yield conn
+    
     async def fetch_one(self, query: str, *args) -> Optional[Dict[str, Any]]:
         """Execute a query and fetch one row"""
         async with self.get_connection() as conn:
@@ -77,6 +84,30 @@ class Database:
         """Execute a query and fetch a single value"""
         async with self.get_connection() as conn:
             return await conn.fetchval(query, *args)
+    
+    # New transaction-aware methods
+    async def fetch_one_in_transaction(self, conn: asyncpg.Connection, query: str, *args) -> Optional[Dict[str, Any]]:
+        """Execute a query and fetch one row within a transaction"""
+        row = await conn.fetchrow(query, *args)
+        return dict(row) if row else None
+    
+    async def fetch_all_in_transaction(self, conn: asyncpg.Connection, query: str, *args) -> List[Dict[str, Any]]:
+        """Execute a query and fetch all rows within a transaction"""
+        rows = await conn.fetch(query, *args)
+        return [dict(row) for row in rows]
+    
+    async def execute_in_transaction(self, conn: asyncpg.Connection, query: str, *args) -> str:
+        """Execute a query within a transaction"""
+        return await conn.execute(query, *args)
+    
+    async def fetch_val_in_transaction(self, conn: asyncpg.Connection, query: str, *args) -> Any:
+        """Execute a query and fetch a single value within a transaction"""
+        return await conn.fetchval(query, *args)
+    
+    async def execute_many(self, query: str, args_list: List[tuple]) -> None:
+        """Execute multiple queries in a single transaction"""
+        async with self.transaction() as conn:
+            await conn.executemany(query, args_list)
 
 # Global database instance
 db = Database()
