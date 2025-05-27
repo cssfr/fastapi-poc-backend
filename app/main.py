@@ -15,6 +15,7 @@ from .services import BacktestService, TradeService, StrategyService, UserServic
 from .middleware import LoggingMiddleware, ErrorHandlingMiddleware
 from .logging_config import setup_logging
 from .health import router as health_router
+from .routers.storage import router as storage_router
 from .exceptions import NotFoundError, ValidationError, DatabaseError
 from typing import List
 import logging
@@ -81,6 +82,7 @@ app.add_middleware(
 
 # Include routers
 app.include_router(health_router)
+app.include_router(storage_router)
 
 # Exception handlers
 @app.exception_handler(NotFoundError)
