@@ -46,10 +46,7 @@ class DuckDBService:
             files_str = f"[{', '.join(file_list)}]"
             
             # Query all Parquet files together
-            result = self.conn.execute(f"""
-                {query}
-                FROM parquet_scan({files_str})
-            """).fetchall()
+            result = self.conn.execute(query).fetchall()
             
             # Get column names
             columns = [desc[0] for desc in self.conn.description]
@@ -109,12 +106,13 @@ class DuckDBService:
                     low,
                     close,
                     volume
+                FROM read_parquet({})
                 WHERE 
                     symbol = '{}'
                     AND timestamp >= TIMESTAMP '{}'
                     AND timestamp <= TIMESTAMP '{} 23:59:59'
                 ORDER BY timestamp ASC
-            """.format(symbol, start_date.isoformat(), end_date.isoformat())
+            """.format(files_str, symbol, start_date.isoformat(), end_date.isoformat())
         else:
             # Aggregate to requested timeframe
             interval_map = {
@@ -129,9 +127,9 @@ class DuckDBService:
             
             minutes = interval_map.get(timeframe, 1440)
             
-            # DuckDB aggregation query
+            # DuckDB aggregation query using window functions
             query = """
-                WITH grouped_data AS (
+                WITH ordered_data AS (
                     SELECT 
                         symbol,
                         timestamp,
@@ -141,25 +139,41 @@ class DuckDBService:
                         low,
                         close,
                         volume,
-                        EXTRACT(EPOCH FROM timestamp)::BIGINT / ({} * 60) AS time_group
+                        EXTRACT(EPOCH FROM timestamp)::BIGINT / ({} * 60) AS time_group,
+                        ROW_NUMBER() OVER (PARTITION BY symbol, EXTRACT(EPOCH FROM timestamp)::BIGINT / ({} * 60) ORDER BY timestamp ASC) as rn_first,
+                        ROW_NUMBER() OVER (PARTITION BY symbol, EXTRACT(EPOCH FROM timestamp)::BIGINT / ({} * 60) ORDER BY timestamp DESC) as rn_last
+                    FROM read_parquet({})
                     WHERE 
                         symbol = '{}'
                         AND timestamp >= TIMESTAMP '{}'
                         AND timestamp <= TIMESTAMP '{} 23:59:59'
+                ),
+                aggregated AS (
+                    SELECT 
+                        symbol,
+                        time_group,
+                        MIN(timestamp) as timestamp,
+                        MIN(unix_time) as unix_time,
+                        MAX(CASE WHEN rn_first = 1 THEN open END) as open,
+                        MAX(high) as high,
+                        MIN(low) as low,
+                        MAX(CASE WHEN rn_last = 1 THEN close END) as close,
+                        SUM(volume) as volume
+                    FROM ordered_data
+                    GROUP BY symbol, time_group
                 )
                 SELECT 
                     symbol,
-                    MIN(timestamp) as timestamp,
-                    MIN(unix_time) as unix_time,
-                    FIRST(open) as open,
-                    MAX(high) as high,
-                    MIN(low) as low,
-                    LAST(close) as close,
-                    SUM(volume) as volume
-                FROM grouped_data
-                GROUP BY symbol, time_group
+                    timestamp,
+                    unix_time,
+                    open,
+                    high,
+                    low,
+                    close,
+                    volume
+                FROM aggregated
                 ORDER BY timestamp ASC
-            """.format(minutes, symbol, start_date.isoformat(), end_date.isoformat())
+            """.format(minutes, minutes, minutes, files_str, symbol, start_date.isoformat(), end_date.isoformat())
         
         try:
             data = await self.query_parquet_from_minio(object_names, query)
