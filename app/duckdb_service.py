@@ -118,34 +118,48 @@ class DuckDBService:
         else:
             # Aggregate to requested timeframe
             interval_map = {
-                "5m": "5 MINUTE",
-                "15m": "15 MINUTE",
-                "30m": "30 MINUTE",
-                "1h": "1 HOUR",
-                "4h": "4 HOUR",
-                "1d": "1 DAY",
-                "1w": "1 WEEK"
+                "5m": 5,
+                "15m": 15,
+                "30m": 30,
+                "1h": 60,
+                "4h": 240,
+                "1d": 1440,
+                "1w": 10080
             }
             
-            interval = interval_map.get(timeframe, "1 DAY")
+            minutes = interval_map.get(timeframe, 1440)
             
+            # DuckDB aggregation query
             query = """
+                WITH grouped_data AS (
+                    SELECT 
+                        symbol,
+                        timestamp,
+                        unix_time,
+                        open,
+                        high,
+                        low,
+                        close,
+                        volume,
+                        EXTRACT(EPOCH FROM timestamp)::BIGINT / ({} * 60) AS time_group
+                    WHERE 
+                        symbol = '{}'
+                        AND timestamp >= TIMESTAMP '{}'
+                        AND timestamp <= TIMESTAMP '{} 23:59:59'
+                )
                 SELECT 
                     symbol,
-                    time_bucket(INTERVAL '{}', timestamp) as timestamp,
+                    MIN(timestamp) as timestamp,
                     MIN(unix_time) as unix_time,
                     FIRST(open) as open,
                     MAX(high) as high,
                     MIN(low) as low,
                     LAST(close) as close,
                     SUM(volume) as volume
-                WHERE 
-                    symbol = '{}'
-                    AND timestamp >= TIMESTAMP '{}'
-                    AND timestamp <= TIMESTAMP '{} 23:59:59'
-                GROUP BY symbol, time_bucket(INTERVAL '{}', timestamp)
+                FROM grouped_data
+                GROUP BY symbol, time_group
                 ORDER BY timestamp ASC
-            """.format(interval, symbol, start_date.isoformat(), end_date.isoformat(), interval)
+            """.format(minutes, symbol, start_date.isoformat(), end_date.isoformat())
         
         try:
             data = await self.query_parquet_from_minio(object_names, query)
