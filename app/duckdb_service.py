@@ -46,7 +46,12 @@ class DuckDBService:
             files_str = f"[{', '.join(file_list)}]"
             
             # Query all Parquet files together
-            result = self.conn.execute(query).fetchall()
+            full_query = f"""
+                {query}
+                FROM read_parquet({files_str})
+            """
+            
+            result = self.conn.execute(full_query).fetchall()
             
             # Get column names
             columns = [desc[0] for desc in self.conn.description]
@@ -106,13 +111,12 @@ class DuckDBService:
                     low,
                     close,
                     volume
-                FROM read_parquet({})
                 WHERE 
                     symbol = '{}'
                     AND timestamp >= TIMESTAMP '{}'
                     AND timestamp <= TIMESTAMP '{} 23:59:59'
                 ORDER BY timestamp ASC
-            """.format(files_str, symbol, start_date.isoformat(), end_date.isoformat())
+            """.format(symbol, start_date.isoformat(), end_date.isoformat())
         else:
             # Aggregate to requested timeframe
             interval_map = {
@@ -142,7 +146,6 @@ class DuckDBService:
                         EXTRACT(EPOCH FROM timestamp)::BIGINT / ({} * 60) AS time_group,
                         ROW_NUMBER() OVER (PARTITION BY symbol, EXTRACT(EPOCH FROM timestamp)::BIGINT / ({} * 60) ORDER BY timestamp ASC) as rn_first,
                         ROW_NUMBER() OVER (PARTITION BY symbol, EXTRACT(EPOCH FROM timestamp)::BIGINT / ({} * 60) ORDER BY timestamp DESC) as rn_last
-                    FROM read_parquet({})
                     WHERE 
                         symbol = '{}'
                         AND timestamp >= TIMESTAMP '{}'
@@ -173,7 +176,7 @@ class DuckDBService:
                     volume
                 FROM aggregated
                 ORDER BY timestamp ASC
-            """.format(minutes, minutes, minutes, files_str, symbol, start_date.isoformat(), end_date.isoformat())
+            """.format(minutes, minutes, minutes, symbol, start_date.isoformat(), end_date.isoformat())
         
         try:
             data = await self.query_parquet_from_minio(object_names, query)
