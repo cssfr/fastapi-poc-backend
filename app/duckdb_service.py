@@ -45,11 +45,15 @@ class DuckDBService:
             file_list = [f"'{tf.name}'" for tf in temp_files]
             files_str = f"[{', '.join(file_list)}]"
             
-            # Query all Parquet files together
-            result = self.conn.execute(f"""
-                {query}
-                FROM parquet_scan({files_str})
-            """).fetchall()
+            # Execute query on the parquet files
+            if "{FILES}" in query:
+                # For complex queries with placeholder
+                full_query = query.replace("{FILES}", files_str)
+            else:
+                # For simple WHERE clause queries
+                full_query = f"SELECT * FROM read_parquet({files_str}) {query}"
+            
+            result = self.conn.execute(full_query).fetchall()
             
             # Get column names
             columns = [desc[0] for desc in self.conn.description]
@@ -82,8 +86,8 @@ class DuckDBService:
         current_date = start_date
         
         while current_date <= end_date:
-            # Construct object name: ohlcv_1m/symbol=ES/date=2025-05-25.parquet
-            object_name = f"ohlcv_{timeframe}/symbol={symbol}/date={current_date.isoformat()}.parquet"
+            # Construct object name: ohlcv/1m/symbol=ES/date=2025-05-27/ES_2025-05-27.parquet
+            object_name = f"ohlcv/{timeframe}/symbol={symbol}/date={current_date.isoformat()}/{symbol}_{current_date.isoformat()}.parquet"
             
             # Check if this file exists
             if await minio_service.check_object_exists(object_name):
@@ -96,30 +100,56 @@ class DuckDBService:
         if not object_names:
             raise ValueError(f"No data found for symbol {symbol} between {start_date} and {end_date}")
         
-        # Query to select OHLCV data - using actual column names from your data
-        query = """
-            SELECT 
-                symbol,
-                timestamp,
-                unix_time,
-                open,
-                high,
-                low,
-                close,
-                volume
-            WHERE 
-                symbol = '{}'
-                AND timestamp >= TIMESTAMP '{}'
-                AND timestamp <= TIMESTAMP '{} 23:59:59'
-            ORDER BY timestamp ASC
-        """.format(symbol, start_date.isoformat(), end_date.isoformat())
+        # Build query based on timeframe
+        # Convert dates to unix timestamps (start of day and end of day)
+        start_unix = int(datetime.combine(start_date, datetime.min.time()).timestamp())
+        end_unix = int(datetime.combine(end_date, datetime.max.time()).timestamp())
+        
+        if timeframe == "1m":
+            # Raw 1-minute data
+            query = f"""
+                WHERE symbol = '{symbol}'
+                AND unix_time >= {start_unix}
+                AND unix_time <= {end_unix}
+                ORDER BY unix_time ASC
+            """
+        else:
+            # Aggregate to requested timeframe
+            interval_seconds = {
+                "5m": 300,
+                "15m": 900,
+                "30m": 1800,
+                "1h": 3600,
+                "4h": 14400,
+                "1d": 86400,
+                "1w": 604800
+            }.get(timeframe, 86400)
+            
+            # DuckDB aggregation using unix time
+            query = f"""
+                SELECT 
+                    symbol,
+                    (unix_time / {interval_seconds}) * {interval_seconds} as unix_time,
+                    MIN(timestamp) as timestamp,
+                    FIRST(open ORDER BY unix_time) as open,
+                    MAX(high) as high,
+                    MIN(low) as low,
+                    LAST(close ORDER BY unix_time) as close,
+                    SUM(volume) as volume
+                FROM read_parquet({{FILES}})
+                WHERE symbol = '{symbol}'
+                AND unix_time >= {start_unix}
+                AND unix_time <= {end_unix}
+                GROUP BY symbol, (unix_time / {interval_seconds})
+                ORDER BY unix_time ASC
+            """
         
         try:
             data = await self.query_parquet_from_minio(object_names, query)
             
             # Convert timestamps to ISO format for JSON serialization
             for row in data:
-                if isinstance(row.get('timestamp'), (datetime, date)):
+                if isinstance(row.get('timestamp'), datetime):
                     row['timestamp'] = row['timestamp'].isoformat()
             
             return data
@@ -132,15 +162,15 @@ class DuckDBService:
         """Get list of available symbols from MinIO"""
         try:
             # List all objects in the timeframe directory
-            objects = await minio_service.list_objects(prefix=f"ohlcv_{timeframe}/")
+            objects = await minio_service.list_objects(prefix=f"ohlcv/{timeframe}/")
             
             # Extract unique symbols from object names
             symbols = set()
             for obj in objects:
-                # Parse symbol from path: ohlcv_1m/symbol=ES/date=2025-05-25.parquet
+                # Parse symbol from path: ohlcv/1m/symbol=ES/date=2025-05-27/ES_2025-05-27.parquet
                 parts = obj['name'].split('/')
-                if len(parts) >= 2 and parts[1].startswith('symbol='):
-                    symbol = parts[1].replace('symbol=', '')
+                if len(parts) >= 3 and parts[2].startswith('symbol='):
+                    symbol = parts[2].replace('symbol=', '')
                     symbols.add(symbol)
             
             return sorted(list(symbols))
@@ -153,16 +183,16 @@ class DuckDBService:
         """Get list of available dates for a symbol"""
         try:
             # List objects for the specific symbol
-            prefix = f"ohlcv_{timeframe}/symbol={symbol}/"
+            prefix = f"ohlcv/{timeframe}/symbol={symbol}/"
             objects = await minio_service.list_objects(prefix=prefix)
             
             # Extract dates from object names
             dates = []
             for obj in objects:
-                # Parse date from filename: date=2025-05-25.parquet
-                filename = obj['name'].split('/')[-1]
-                if filename.startswith('date=') and filename.endswith('.parquet'):
-                    date_str = filename.replace('date=', '').replace('.parquet', '')
+                # Parse date from path: ohlcv/1m/symbol=ES/date=2025-05-27/ES_2025-05-27.parquet
+                parts = obj['name'].split('/')
+                if len(parts) >= 4 and parts[3].startswith('date='):
+                    date_str = parts[3].replace('date=', '')
                     dates.append(date_str)
             
             return sorted(dates)

@@ -9,7 +9,7 @@ class OHLCVRequest(BaseModel):
     symbol: str = Field(..., min_length=1, max_length=20)
     start_date: date
     end_date: date
-    timeframe: str = Field(default="1d", regex="^(1m|5m|15m|30m|1h|4h|1d|1w)$")
+    timeframe: str = Field(default="1d", pattern="^(1m|5m|15m|30m|1h|4h|1d|1w)$")
     
     @validator('symbol')
     def normalize_symbol(cls, v):
