@@ -45,11 +45,8 @@ class DuckDBService:
             file_list = [f"'{tf.name}'" for tf in temp_files]
             files_str = f"[{', '.join(file_list)}]"
             
-            # Query all Parquet files together
-            full_query = f"""
-                {query}
-                FROM read_parquet({files_str})
-            """
+            # Replace the FROM_CLAUSE placeholder with actual files
+            full_query = query.replace("{FROM_CLAUSE}", f"FROM read_parquet({files_str})")
             
             result = self.conn.execute(full_query).fetchall()
             
@@ -100,8 +97,8 @@ class DuckDBService:
         
         # Build query based on timeframe
         if timeframe == "1m":
-            # Raw 1-minute data
-            query = """
+            # Raw 1-minute data - query will be completed in query_parquet_from_minio
+            query = f"""
                 SELECT 
                     symbol,
                     timestamp,
@@ -111,12 +108,13 @@ class DuckDBService:
                     low,
                     close,
                     volume
+                {{FROM_CLAUSE}}
                 WHERE 
-                    symbol = '{}'
-                    AND timestamp >= TIMESTAMP '{}'
-                    AND timestamp <= TIMESTAMP '{} 23:59:59'
+                    symbol = '{symbol}'
+                    AND timestamp >= TIMESTAMP '{start_date.isoformat()}'
+                    AND timestamp <= TIMESTAMP '{end_date.isoformat()} 23:59:59'
                 ORDER BY timestamp ASC
-            """.format(symbol, start_date.isoformat(), end_date.isoformat())
+            """
         else:
             # Aggregate to requested timeframe
             interval_map = {
@@ -131,8 +129,8 @@ class DuckDBService:
             
             minutes = interval_map.get(timeframe, 1440)
             
-            # DuckDB aggregation query using window functions
-            query = """
+            # DuckDB aggregation query - query will be completed in query_parquet_from_minio
+            query = f"""
                 WITH ordered_data AS (
                     SELECT 
                         symbol,
@@ -143,13 +141,14 @@ class DuckDBService:
                         low,
                         close,
                         volume,
-                        EXTRACT(EPOCH FROM timestamp)::BIGINT / ({} * 60) AS time_group,
-                        ROW_NUMBER() OVER (PARTITION BY symbol, EXTRACT(EPOCH FROM timestamp)::BIGINT / ({} * 60) ORDER BY timestamp ASC) as rn_first,
-                        ROW_NUMBER() OVER (PARTITION BY symbol, EXTRACT(EPOCH FROM timestamp)::BIGINT / ({} * 60) ORDER BY timestamp DESC) as rn_last
+                        EXTRACT(EPOCH FROM timestamp)::BIGINT / ({minutes} * 60) AS time_group,
+                        ROW_NUMBER() OVER (PARTITION BY symbol, EXTRACT(EPOCH FROM timestamp)::BIGINT / ({minutes} * 60) ORDER BY timestamp ASC) as rn_first,
+                        ROW_NUMBER() OVER (PARTITION BY symbol, EXTRACT(EPOCH FROM timestamp)::BIGINT / ({minutes} * 60) ORDER BY timestamp DESC) as rn_last
+                    {{FROM_CLAUSE}}
                     WHERE 
-                        symbol = '{}'
-                        AND timestamp >= TIMESTAMP '{}'
-                        AND timestamp <= TIMESTAMP '{} 23:59:59'
+                        symbol = '{symbol}'
+                        AND timestamp >= TIMESTAMP '{start_date.isoformat()}'
+                        AND timestamp <= TIMESTAMP '{end_date.isoformat()} 23:59:59'
                 ),
                 aggregated AS (
                     SELECT 
@@ -176,7 +175,7 @@ class DuckDBService:
                     volume
                 FROM aggregated
                 ORDER BY timestamp ASC
-            """.format(minutes, minutes, minutes, symbol, start_date.isoformat(), end_date.isoformat())
+            """
         
         try:
             data = await self.query_parquet_from_minio(object_names, query)
