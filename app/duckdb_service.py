@@ -45,8 +45,13 @@ class DuckDBService:
             file_list = [f"'{tf.name}'" for tf in temp_files]
             files_str = f"[{', '.join(file_list)}]"
             
-            # Replace the FROM_CLAUSE placeholder with actual files
-            full_query = query.replace("{FROM_CLAUSE}", f"FROM read_parquet({files_str})")
+            # Execute query on the parquet files
+            if query.strip().upper().startswith("WHERE"):
+                # For simple WHERE clause queries
+                full_query = f"SELECT * FROM read_parquet({files_str}) {query}"
+            else:
+                # For complex queries (CTEs, etc)
+                full_query = query.replace("{FILES}", files_str)
             
             result = self.conn.execute(full_query).fetchall()
             
@@ -96,85 +101,47 @@ class DuckDBService:
             raise ValueError(f"No data found for symbol {symbol} between {start_date} and {end_date}")
         
         # Build query based on timeframe
+        # Convert dates to unix timestamps (start of day and end of day)
+        start_unix = int(datetime.combine(start_date, datetime.min.time()).timestamp())
+        end_unix = int(datetime.combine(end_date, datetime.max.time()).timestamp())
+        
         if timeframe == "1m":
-            # Raw 1-minute data - query will be completed in query_parquet_from_minio
+            # Raw 1-minute data
             query = f"""
-                SELECT 
-                    symbol,
-                    timestamp,
-                    unix_time,
-                    open,
-                    high,
-                    low,
-                    close,
-                    volume
-                {{FROM_CLAUSE}}
-                WHERE 
-                    symbol = '{symbol}'
-                    AND timestamp >= CAST('{start_date.isoformat()} 00:00:00' AS TIMESTAMP WITH TIME ZONE)
-                    AND timestamp <= CAST('{end_date.isoformat()} 23:59:59' AS TIMESTAMP WITH TIME ZONE)
-                ORDER BY timestamp ASC
+                WHERE symbol = '{symbol}'
+                AND unix_time >= {start_unix}
+                AND unix_time <= {end_unix}
+                ORDER BY unix_time ASC
             """
         else:
             # Aggregate to requested timeframe
-            interval_map = {
-                "5m": 5,
-                "15m": 15,
-                "30m": 30,
-                "1h": 60,
-                "4h": 240,
-                "1d": 1440,
-                "1w": 10080
-            }
+            interval_seconds = {
+                "5m": 300,
+                "15m": 900,
+                "30m": 1800,
+                "1h": 3600,
+                "4h": 14400,
+                "1d": 86400,
+                "1w": 604800
+            }.get(timeframe, 86400)
             
-            minutes = interval_map.get(timeframe, 1440)
-            
-            # DuckDB aggregation query - query will be completed in query_parquet_from_minio
+            # DuckDB aggregation using unix time
             query = f"""
-                WITH ordered_data AS (
-                    SELECT 
-                        symbol,
-                        timestamp,
-                        unix_time,
-                        open,
-                        high,
-                        low,
-                        close,
-                        volume,
-                        EXTRACT(EPOCH FROM timestamp)::BIGINT / ({minutes} * 60) AS time_group,
-                        ROW_NUMBER() OVER (PARTITION BY symbol, EXTRACT(EPOCH FROM timestamp)::BIGINT / ({minutes} * 60) ORDER BY timestamp ASC) as rn_first,
-                        ROW_NUMBER() OVER (PARTITION BY symbol, EXTRACT(EPOCH FROM timestamp)::BIGINT / ({minutes} * 60) ORDER BY timestamp DESC) as rn_last
-                    {{FROM_CLAUSE}}
-                    WHERE 
-                        symbol = '{symbol}'
-                        AND timestamp >= CAST('{start_date.isoformat()} 00:00:00' AS TIMESTAMP WITH TIME ZONE)
-                        AND timestamp <= CAST('{end_date.isoformat()} 23:59:59' AS TIMESTAMP WITH TIME ZONE)
-                ),
-                aggregated AS (
-                    SELECT 
-                        symbol,
-                        time_group,
-                        MIN(timestamp) as timestamp,
-                        MIN(unix_time) as unix_time,
-                        MAX(CASE WHEN rn_first = 1 THEN open END) as open,
-                        MAX(high) as high,
-                        MIN(low) as low,
-                        MAX(CASE WHEN rn_last = 1 THEN close END) as close,
-                        SUM(volume) as volume
-                    FROM ordered_data
-                    GROUP BY symbol, time_group
-                )
                 SELECT 
                     symbol,
-                    timestamp,
-                    unix_time,
-                    open,
-                    high,
-                    low,
-                    close,
-                    volume
-                FROM aggregated
-                ORDER BY timestamp ASC
+                    (unix_time / {interval_seconds}) * {interval_seconds} as unix_time,
+                    MIN(timestamp) as timestamp,
+                    FIRST(open ORDER BY unix_time) as open,
+                    MAX(high) as high,
+                    MIN(low) as low,
+                    LAST(close ORDER BY unix_time) as close,
+                    SUM(volume) as volume
+                FROM read_parquet({{FILES}})
+                WHERE symbol = '{symbol}'
+                AND unix_time >= {start_unix}
+                AND unix_time <= {end_unix}
+                GROUP BY symbol, (unix_time / {interval_seconds})
+                ORDER BY unix_time ASC
             """
         
         try:
@@ -182,7 +149,7 @@ class DuckDBService:
             
             # Convert timestamps to ISO format for JSON serialization
             for row in data:
-                if isinstance(row.get('timestamp'), (datetime, date)):
+                if isinstance(row.get('timestamp'), datetime):
                     row['timestamp'] = row['timestamp'].isoformat()
             
             return data
