@@ -83,7 +83,7 @@ class DuckDBService:
         
         while current_date <= end_date:
             # Construct object name: ohlcv_1m/symbol=ES/date=2025-05-25.parquet
-            object_name = f"ohlcv_{timeframe}/symbol={symbol}/date={current_date.isoformat()}.parquet"
+            object_name = f"ohlcv_1m/symbol={symbol}/date={current_date.isoformat()}.parquet"
             
             # Check if this file exists
             if await minio_service.check_object_exists(object_name):
@@ -96,23 +96,56 @@ class DuckDBService:
         if not object_names:
             raise ValueError(f"No data found for symbol {symbol} between {start_date} and {end_date}")
         
-        # Query to select OHLCV data - using actual column names from your data
-        query = """
-            SELECT 
-                symbol,
-                timestamp,
-                unix_time,
-                open,
-                high,
-                low,
-                close,
-                volume
-            WHERE 
-                symbol = '{}'
-                AND timestamp >= TIMESTAMP '{}'
-                AND timestamp <= TIMESTAMP '{} 23:59:59'
-            ORDER BY timestamp ASC
-        """.format(symbol, start_date.isoformat(), end_date.isoformat())
+        # Build query based on timeframe
+        if timeframe == "1m":
+            # Raw 1-minute data
+            query = """
+                SELECT 
+                    symbol,
+                    timestamp,
+                    unix_time,
+                    open,
+                    high,
+                    low,
+                    close,
+                    volume
+                WHERE 
+                    symbol = '{}'
+                    AND timestamp >= TIMESTAMP '{}'
+                    AND timestamp <= TIMESTAMP '{} 23:59:59'
+                ORDER BY timestamp ASC
+            """.format(symbol, start_date.isoformat(), end_date.isoformat())
+        else:
+            # Aggregate to requested timeframe
+            interval_map = {
+                "5m": "5 MINUTE",
+                "15m": "15 MINUTE",
+                "30m": "30 MINUTE",
+                "1h": "1 HOUR",
+                "4h": "4 HOUR",
+                "1d": "1 DAY",
+                "1w": "1 WEEK"
+            }
+            
+            interval = interval_map.get(timeframe, "1 DAY")
+            
+            query = """
+                SELECT 
+                    symbol,
+                    time_bucket(INTERVAL '{}', timestamp) as timestamp,
+                    MIN(unix_time) as unix_time,
+                    FIRST(open) as open,
+                    MAX(high) as high,
+                    MIN(low) as low,
+                    LAST(close) as close,
+                    SUM(volume) as volume
+                WHERE 
+                    symbol = '{}'
+                    AND timestamp >= TIMESTAMP '{}'
+                    AND timestamp <= TIMESTAMP '{} 23:59:59'
+                GROUP BY symbol, time_bucket(INTERVAL '{}', timestamp)
+                ORDER BY timestamp ASC
+            """.format(interval, symbol, start_date.isoformat(), end_date.isoformat(), interval)
         
         try:
             data = await self.query_parquet_from_minio(object_names, query)
