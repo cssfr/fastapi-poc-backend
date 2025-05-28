@@ -46,12 +46,12 @@ class DuckDBService:
             files_str = f"[{', '.join(file_list)}]"
             
             # Execute query on the parquet files
-            if query.strip().upper().startswith("WHERE"):
+            if "{FILES}" in query:
+                # For complex queries with placeholder
+                full_query = query.replace("{FILES}", files_str)
+            else:
                 # For simple WHERE clause queries
                 full_query = f"SELECT * FROM read_parquet({files_str}) {query}"
-            else:
-                # For complex queries (CTEs, etc)
-                full_query = query.replace("{FILES}", files_str)
             
             result = self.conn.execute(full_query).fetchall()
             
