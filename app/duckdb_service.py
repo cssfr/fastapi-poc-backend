@@ -86,8 +86,8 @@ class DuckDBService:
         current_date = start_date
         
         while current_date <= end_date:
-            # Construct object name: ohlcv_1m/symbol=ES/date=2025-05-25.parquet
-            object_name = f"ohlcv_1m/symbol={symbol}/date={current_date.isoformat()}.parquet"
+            # Construct object name: ohlcv/1m/symbol=ES/date=2025-05-27/ES_2025-05-27.parquet
+            object_name = f"ohlcv/{timeframe}/symbol={symbol}/date={current_date.isoformat()}/{symbol}_{current_date.isoformat()}.parquet"
             
             # Check if this file exists
             if await minio_service.check_object_exists(object_name):
@@ -162,15 +162,15 @@ class DuckDBService:
         """Get list of available symbols from MinIO"""
         try:
             # List all objects in the timeframe directory
-            objects = await minio_service.list_objects(prefix=f"ohlcv_{timeframe}/")
+            objects = await minio_service.list_objects(prefix=f"ohlcv/{timeframe}/")
             
             # Extract unique symbols from object names
             symbols = set()
             for obj in objects:
-                # Parse symbol from path: ohlcv_1m/symbol=ES/date=2025-05-25.parquet
+                # Parse symbol from path: ohlcv/1m/symbol=ES/date=2025-05-27/ES_2025-05-27.parquet
                 parts = obj['name'].split('/')
-                if len(parts) >= 2 and parts[1].startswith('symbol='):
-                    symbol = parts[1].replace('symbol=', '')
+                if len(parts) >= 3 and parts[2].startswith('symbol='):
+                    symbol = parts[2].replace('symbol=', '')
                     symbols.add(symbol)
             
             return sorted(list(symbols))
@@ -183,16 +183,16 @@ class DuckDBService:
         """Get list of available dates for a symbol"""
         try:
             # List objects for the specific symbol
-            prefix = f"ohlcv_{timeframe}/symbol={symbol}/"
+            prefix = f"ohlcv/{timeframe}/symbol={symbol}/"
             objects = await minio_service.list_objects(prefix=prefix)
             
             # Extract dates from object names
             dates = []
             for obj in objects:
-                # Parse date from filename: date=2025-05-25.parquet
-                filename = obj['name'].split('/')[-1]
-                if filename.startswith('date=') and filename.endswith('.parquet'):
-                    date_str = filename.replace('date=', '').replace('.parquet', '')
+                # Parse date from path: ohlcv/1m/symbol=ES/date=2025-05-27/ES_2025-05-27.parquet
+                parts = obj['name'].split('/')
+                if len(parts) >= 4 and parts[3].startswith('date='):
+                    date_str = parts[3].replace('date=', '')
                     dates.append(date_str)
             
             return sorted(dates)
