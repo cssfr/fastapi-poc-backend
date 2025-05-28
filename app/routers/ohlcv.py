@@ -17,7 +17,7 @@ router = APIRouter(
 
 @router.get("/symbols", response_model=List[str])
 async def get_available_symbols(
-    timeframe: str = Query(default="1m", regex="^(1m|5m|15m|30m|1h|4h|1d|1w)$"),
+    timeframe: str = Query(default="1m", pattern="^(1m|5m|15m|30m|1h|4h|1d|1w)$"),
     user_id: str = Depends(verify_token)
 ):
     """Get list of available symbols"""
@@ -34,7 +34,7 @@ async def get_available_symbols(
 @router.get("/dates/{symbol}", response_model=List[str])
 async def get_available_dates(
     symbol: str,
-    timeframe: str = Query(default="1m", regex="^(1m|5m|15m|30m|1h|4h|1d|1w)$"),
+    timeframe: str = Query(default="1m", pattern="^(1m|5m|15m|30m|1h|4h|1d|1w)$"),
     user_id: str = Depends(verify_token)
 ):
     """Get list of available dates for a symbol"""
@@ -120,7 +120,7 @@ async def get_ohlcv_data_simple(
     symbol: str,
     start_date: date = Query(..., description="Start date (YYYY-MM-DD)"),
     end_date: date = Query(..., description="End date (YYYY-MM-DD)"),
-    timeframe: str = Query(default="1d", regex="^(1m|5m|15m|30m|1h|4h|1d|1w)$"),
+    timeframe: str = Query(default="1d", pattern="^(1m|5m|15m|30m|1h|4h|1d|1w)$"),
     response: Response = None,
     user_id: str = Depends(verify_token)
 ):
