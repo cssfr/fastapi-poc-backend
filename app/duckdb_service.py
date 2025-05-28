@@ -111,8 +111,8 @@ class DuckDBService:
                 {{FROM_CLAUSE}}
                 WHERE 
                     symbol = '{symbol}'
-                    AND timestamp >= TIMESTAMP '{start_date.isoformat()}'
-                    AND timestamp <= TIMESTAMP '{end_date.isoformat()} 23:59:59'
+                    AND timestamp >= CAST('{start_date.isoformat()} 00:00:00' AS TIMESTAMP WITH TIME ZONE)
+                    AND timestamp <= CAST('{end_date.isoformat()} 23:59:59' AS TIMESTAMP WITH TIME ZONE)
                 ORDER BY timestamp ASC
             """
         else:
@@ -147,8 +147,8 @@ class DuckDBService:
                     {{FROM_CLAUSE}}
                     WHERE 
                         symbol = '{symbol}'
-                        AND timestamp >= TIMESTAMP '{start_date.isoformat()}'
-                        AND timestamp <= TIMESTAMP '{end_date.isoformat()} 23:59:59'
+                        AND timestamp >= CAST('{start_date.isoformat()} 00:00:00' AS TIMESTAMP WITH TIME ZONE)
+                        AND timestamp <= CAST('{end_date.isoformat()} 23:59:59' AS TIMESTAMP WITH TIME ZONE)
                 ),
                 aggregated AS (
                     SELECT 
