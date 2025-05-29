@@ -1,101 +1,59 @@
+"""DuckDB service for querying Parquet files from MinIO"""
 import duckdb
-from datetime import date, datetime, timedelta
-from typing import List, Dict, Any, Optional
-import pytz
 import os
+import logging
+from typing import List, Dict, Any, Optional
+from datetime import datetime, date, timedelta
+from .minio_client import MinIOService, MINIO_BUCKET
+import tempfile
 
-from app.minio_client import MinioClient
+logger = logging.getLogger(__name__)
 
 class DuckDBService:
+    """Service for querying Parquet files using DuckDB"""
+    
     def __init__(self):
-        # Create read-only connection with S3 configuration
-        self.conn = duckdb.connect(":memory:", read_only=False)  # Need write for S3 config
+        # Initialize DuckDB connection (in-memory)
+        self.conn = duckdb.connect(':memory:')
+        logger.info("DuckDB initialized")
+    
+    async def query_parquet_from_minio(self, object_names: List[str], query: str) -> List[Dict[str, Any]]:
+        """Query multiple Parquet files from MinIO using DuckDB"""
+        if not MinIOService.is_available():
+            raise RuntimeError("MinIO service not available")
         
-        # Configure S3 access
-        self._configure_s3_access()
-        
-        self.minio_client = MinioClient()
-        
-    def _configure_s3_access(self):
-        """Configure DuckDB for direct S3 access"""
-        # Set S3 endpoint and credentials
-        self.conn.execute(f"""
-            SET s3_endpoint = '{os.getenv('MINIO_ENDPOINT', 'localhost:9000')}';
-            SET s3_access_key_id = '{os.getenv('MINIO_ACCESS_KEY', 'minioadmin')}';
-            SET s3_secret_access_key = '{os.getenv('MINIO_SECRET_KEY', 'minioadmin')}';
-            SET s3_use_ssl = false;
-            SET s3_url_style = 'path';
-        """)
-        
-    def construct_s3_paths(self, symbol: str, start_date: date, end_date: date, source_timeframe: str = "1m") -> List[str]:
-        """Construct S3 paths for the date range"""
-        paths = []
-        current = start_date
-        while current <= end_date:
-            path = f"s3://dukascopy-node/ohlcv/{source_timeframe}/symbol={symbol}/date={current.isoformat()}/{symbol}_{current.isoformat()}.parquet"
-            paths.append(f"'{path}'")  # Quote for SQL
-            current += timedelta(days=1)
-        return paths
-        
-    async def query_parquet_from_s3(self, symbol: str, start_date: date, end_date: date, timeframe: str = "1m") -> List[Dict[str, Any]]:
-        """Query parquet files directly from S3 with optional aggregation"""
+        temp_files = []
         try:
-            # Construct S3 paths
-            s3_paths = self.construct_s3_paths(symbol, start_date, end_date)
-            
-            if not s3_paths:
-                return []
-            
-            # Join paths for SQL query
-            files_list = f"[{', '.join(s3_paths)}]"
-            
-            # Build query based on timeframe
-            if timeframe == "1m":
-                # Raw 1-minute data - no aggregation needed
-                query = f"""
-                    SELECT 
-                        symbol,
-                        timestamp,
-                        unix_time,
-                        open,
-                        high,
-                        low,
-                        close,
-                        volume
-                    FROM read_parquet({files_list})
-                    WHERE symbol = '{symbol}'
-                    ORDER BY unix_time ASC
-                """
-            else:
-                # Aggregate to requested timeframe using unix_time
-                interval_seconds = {
-                    "5m": 300,
-                    "15m": 900,
-                    "30m": 1800,
-                    "1h": 3600,
-                    "4h": 14400,
-                    "1d": 86400,
-                    "1w": 604800
-                }.get(timeframe, 86400)
+            # Download all files to temp location
+            for object_name in object_names:
+                tmp_file = tempfile.NamedTemporaryFile(suffix='.parquet', delete=False)
+                temp_files.append(tmp_file)
                 
-                query = f"""
-                    SELECT 
-                        symbol,
-                        (unix_time / {interval_seconds}) * {interval_seconds} as unix_time,
-                        MIN(timestamp) as timestamp,
-                        FIRST(open ORDER BY unix_time) as open,
-                        MAX(high) as high,
-                        MIN(low) as low,
-                        LAST(close ORDER BY unix_time) as close,
-                        SUM(volume) as volume
-                    FROM read_parquet({files_list})
-                    WHERE symbol = '{symbol}'
-                    GROUP BY symbol, (unix_time / {interval_seconds})
-                    ORDER BY unix_time ASC
-                """
+                # Get the object stream from MinIO
+                stream = MinIOService.get_object_stream(object_name, MINIO_BUCKET)
+                
+                # Write stream to temporary file
+                for data in stream:
+                    tmp_file.write(data)
+                tmp_file.flush()
+                tmp_file.close()
+                
+                stream.close()
+                stream.release_conn()
             
-            # Execute query
-            result = self.conn.execute(query).fetchall()
+            # Build file list for DuckDB query
+            file_list = [f"'{tf.name}'" for tf in temp_files]
+            files_str = f"[{', '.join(file_list)}]"
+            
+            # Execute query on the parquet files
+            if "{FILES}" in query:
+                # For complex queries with placeholder
+                full_query = query.replace("{FILES}", files_str)
+            else:
+                # For simple WHERE clause queries
+                full_query = f"SELECT * FROM read_parquet({files_str}) {query}"
+            
+            result = self.conn.execute(full_query).fetchall()
             
             # Get column names
             columns = [desc[0] for desc in self.conn.description]
@@ -104,46 +62,107 @@ class DuckDBService:
             return [dict(zip(columns, row)) for row in result]
             
         except Exception as e:
-            print(f"Error querying S3: {e}")
-            return []
+            logger.error(f"Failed to query Parquet files: {e}")
+            raise
+        finally:
+            # Clean up temp files
+            for tf in temp_files:
+                try:
+                    os.unlink(tf.name)
+                except:
+                    pass
     
-    async def get_ohlcv_data(self, symbol: str, start_date: str, end_date: str, timeframe: str = "1d") -> Dict[str, Any]:
+    async def get_ohlcv_data(
+        self,
+        symbol: str,
+        start_date: date,
+        end_date: date,
+        timeframe: str = "1m"
+    ) -> List[Dict[str, Any]]:
         """Get OHLCV data for a symbol within date range"""
+        
+        # Build list of object names for the date range
+        object_names = []
+        current_date = start_date
+        
+        while current_date <= end_date:
+            # Construct object name: ohlcv/1m/symbol=ES/date=2025-05-27/ES_2025-05-27.parquet
+            object_name = f"ohlcv/{timeframe}/symbol={symbol}/date={current_date.isoformat()}/{symbol}_{current_date.isoformat()}.parquet"
+            
+            # Check if this file exists
+            if await MinIOService.check_object_exists(object_name):
+                object_names.append(object_name)
+            else:
+                logger.warning(f"Missing data file: {object_name}")
+            
+            current_date += timedelta(days=1)
+        
+        if not object_names:
+            raise ValueError(f"No data found for symbol {symbol} between {start_date} and {end_date}")
+        
+        # Build query based on timeframe
+        # Convert dates to unix timestamps (start of day and end of day)
+        start_unix = int(datetime.combine(start_date, datetime.min.time()).timestamp())
+        end_unix = int(datetime.combine(end_date, datetime.max.time()).timestamp())
+        
+        if timeframe == "1m":
+            # Raw 1-minute data
+            query = f"""
+                WHERE symbol = '{symbol}'
+                AND unix_time >= {start_unix}
+                AND unix_time <= {end_unix}
+                ORDER BY unix_time ASC
+            """
+        else:
+            # Aggregate to requested timeframe
+            interval_seconds = {
+                "5m": 300,
+                "15m": 900,
+                "30m": 1800,
+                "1h": 3600,
+                "4h": 14400,
+                "1d": 86400,
+                "1w": 604800
+            }.get(timeframe, 86400)
+            
+            # DuckDB aggregation using unix time
+            query = f"""
+                SELECT 
+                    symbol,
+                    (unix_time / {interval_seconds}) * {interval_seconds} as unix_time,
+                    MIN(timestamp) as timestamp,
+                    FIRST(open ORDER BY unix_time) as open,
+                    MAX(high) as high,
+                    MIN(low) as low,
+                    LAST(close ORDER BY unix_time) as close,
+                    SUM(volume) as volume
+                FROM read_parquet({{FILES}})
+                WHERE symbol = '{symbol}'
+                AND unix_time >= {start_unix}
+                AND unix_time <= {end_unix}
+                GROUP BY symbol, (unix_time / {interval_seconds})
+                ORDER BY unix_time ASC
+            """
+        
         try:
-            # Parse dates
-            start = datetime.fromisoformat(start_date).date()
-            end = datetime.fromisoformat(end_date).date()
+            data = await self.query_parquet_from_minio(object_names, query)
             
-            # Query data directly from S3
-            data = await self.query_parquet_from_s3(symbol, start, end, timeframe)
+            # Convert timestamps to ISO format for JSON serialization
+            for row in data:
+                if isinstance(row.get('timestamp'), datetime):
+                    row['timestamp'] = row['timestamp'].isoformat()
             
-            # Format response
-            return {
-                "symbol": symbol,
-                "timeframe": timeframe,
-                "start_date": start_date,
-                "end_date": end_date,
-                "count": len(data),
-                "data": data
-            }
+            return data
             
         except Exception as e:
-            print(f"Error getting OHLCV data: {e}")
-            return {
-                "symbol": symbol,
-                "timeframe": timeframe,
-                "start_date": start_date,
-                "end_date": end_date,
-                "count": 0,
-                "data": [],
-                "error": str(e)
-            }
+            logger.error(f"Failed to get OHLCV data for {symbol}: {e}")
+            raise
     
     async def get_available_symbols(self, timeframe: str = "1m") -> List[str]:
-        """Get list of available symbols"""
+        """Get list of available symbols from MinIO"""
         try:
             # List all objects in the timeframe directory
-            objects = await self.minio_client.list_objects(prefix=f"ohlcv/{timeframe}/")
+            objects = await MinIOService.list_objects(MINIO_BUCKET, prefix=f"ohlcv/{timeframe}/")
             
             # Extract unique symbols from object names
             symbols = set()
@@ -157,15 +176,15 @@ class DuckDBService:
             return sorted(list(symbols))
             
         except Exception as e:
-            print(f"Error getting available symbols: {e}")
-            return []
+            logger.error(f"Failed to get available symbols: {e}")
+            raise
     
     async def get_available_dates(self, symbol: str, timeframe: str = "1m") -> List[str]:
         """Get list of available dates for a symbol"""
         try:
             # List objects for the specific symbol
             prefix = f"ohlcv/{timeframe}/symbol={symbol}/"
-            objects = await self.minio_client.list_objects(prefix=prefix)
+            objects = await MinIOService.list_objects(MINIO_BUCKET, prefix=prefix)
             
             # Extract dates from object names
             dates = []
@@ -179,5 +198,13 @@ class DuckDBService:
             return sorted(dates)
             
         except Exception as e:
-            print(f"Error getting available dates: {e}")
-            return []
+            logger.error(f"Failed to get available dates for {symbol}: {e}")
+            raise
+    
+    def close(self):
+        """Close DuckDB connection"""
+        if self.conn:
+            self.conn.close()
+
+# Create global DuckDB service instance
+duckdb_service = DuckDBService()
