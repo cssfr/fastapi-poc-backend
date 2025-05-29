@@ -42,14 +42,16 @@ class DuckDBService:
             logger.error(f"Failed to configure DuckDB S3 settings: {e}")
             raise
     
-    def _build_s3_paths(self, symbol: str, start_date: date, end_date: date, timeframe: str = "1m") -> List[str]:
-        """Build list of S3 paths for the date range"""
+    def _build_s3_paths(self, symbol: str, start_date: date, end_date: date, source_resolution: str = "1m") -> List[str]:
+        """Build list of S3 paths for the date range from source data"""
         s3_paths = []
         current_date = start_date
         
         while current_date <= end_date:
             # Build S3 path: s3://dukascopy-node/ohlcv/1m/symbol=DAX/date=2013-10-01/DAX_2013-10-01.parquet
-            s3_path = f"s3://{MINIO_BUCKET}/ohlcv/{timeframe}/symbol={symbol}/date={current_date.isoformat()}/{symbol}_{current_date.isoformat()}.parquet"
+            # source_resolution is the folder name (currently only "1m")
+            # timeframe parameter is used for aggregation logic
+            s3_path = f"s3://{MINIO_BUCKET}/ohlcv/{source_resolution}/symbol={symbol}/date={current_date.isoformat()}/{symbol}_{current_date.isoformat()}.parquet"
             s3_paths.append(s3_path)
             current_date += timedelta(days=1)
         
@@ -60,16 +62,24 @@ class DuckDBService:
         symbol: str,
         start_date: date,
         end_date: date,
-        timeframe: str = "1m"
+        timeframe: str = "1m",
+        source_resolution: str = "1m"  # Source data resolution (folder name)
     ) -> List[Dict[str, Any]]:
-        """Get OHLCV data for a symbol within date range with proper aggregation"""
+        """Get OHLCV data for a symbol within date range with proper aggregation
+        
+        Args:
+            symbol: Trading symbol
+            start_date: Start date for data
+            end_date: End date for data  
+            timeframe: Target aggregation timeframe (1m, 5m, 15m, 1h, 1d, etc.)
+            source_resolution: Source data folder (currently only "1m")
+        """
         
         if not MinIOService.is_available():
             raise RuntimeError("MinIO service not available")
         
-        # Always query from 1m data for aggregation
-        source_timeframe = "1m"
-        s3_paths = self._build_s3_paths(symbol, start_date, end_date, source_timeframe)
+        # Build paths from source data (currently only 1m available)
+        s3_paths = self._build_s3_paths(symbol, start_date, end_date, source_resolution)
         
         if not s3_paths:
             raise ValueError(f"No data paths generated for symbol {symbol} between {start_date} and {end_date}")
@@ -79,14 +89,14 @@ class DuckDBService:
         end_unix = int(datetime.combine(end_date, datetime.max.time()).timestamp())
         
         try:
-            if timeframe == "1m":
-                # Raw 1-minute data - no aggregation needed
+            if timeframe == source_resolution:
+                # Raw data - no aggregation needed (e.g., requesting 1m from 1m source)
                 query = self._build_raw_query(s3_paths, symbol, start_unix, end_unix)
             else:
-                # Aggregated data
+                # Aggregated data (e.g., requesting 5m/1h/1d from 1m source)
                 query = self._build_aggregated_query(s3_paths, symbol, start_unix, end_unix, timeframe)
             
-            logger.debug(f"Executing DuckDB query: {query}")
+            logger.debug(f"Executing DuckDB query for {timeframe} from {source_resolution} source: {query}")
             
             # Execute query directly on S3
             result = self.conn.execute(query).fetchall()
@@ -105,7 +115,7 @@ class DuckDBService:
                     # Convert unix timestamp back to ISO format
                     row['timestamp'] = datetime.fromtimestamp(row['unix_time']).isoformat()
             
-            logger.info(f"Retrieved {len(data)} records for {symbol} ({timeframe})")
+            logger.info(f"Retrieved {len(data)} records for {symbol} ({timeframe} from {source_resolution} source)")
             return data
             
         except Exception as e:
@@ -178,11 +188,11 @@ class DuckDBService:
             ORDER BY bucket_start ASC
         """
     
-    async def get_available_symbols(self, timeframe: str = "1m") -> List[str]:
-        """Get list of available symbols from MinIO"""
+    async def get_available_symbols(self, source_resolution: str = "1m") -> List[str]:
+        """Get list of available symbols from MinIO source data"""
         try:
-            # List all objects in the timeframe directory
-            objects = await MinIOService.list_objects(MINIO_BUCKET, prefix=f"ohlcv/{timeframe}/")
+            # List all objects in the source resolution directory
+            objects = await MinIOService.list_objects(MINIO_BUCKET, prefix=f"ohlcv/{source_resolution}/")
             
             # Extract unique symbols from object names
             symbols = set()
@@ -199,11 +209,11 @@ class DuckDBService:
             logger.error(f"Failed to get available symbols: {e}")
             raise
     
-    async def get_available_dates(self, symbol: str, timeframe: str = "1m") -> List[str]:
-        """Get list of available dates for a symbol"""
+    async def get_available_dates(self, symbol: str, source_resolution: str = "1m") -> List[str]:
+        """Get list of available dates for a symbol from source data"""
         try:
             # List objects for the specific symbol
-            prefix = f"ohlcv/{timeframe}/symbol={symbol}/"
+            prefix = f"ohlcv/{source_resolution}/symbol={symbol}/"
             objects = await MinIOService.list_objects(MINIO_BUCKET, prefix=prefix)
             
             # Extract dates from object names
