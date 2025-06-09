@@ -10,6 +10,7 @@ class OHLCVRequest(BaseModel):
     start_date: date
     end_date: date
     timeframe: str = Field(default="1d", pattern="^(1m|5m|15m|30m|1h|4h|1d|1w)$")
+    source_resolution: str = Field(default="1m", description="Source data resolution (folder name)")
     
     @validator('symbol')
     def normalize_symbol(cls, v):
@@ -40,6 +41,7 @@ class OHLCVResponse(BaseModel):
     """Response model for OHLCV data"""
     symbol: str
     timeframe: str
+    source_resolution: str = Field(default="1m", description="Source data resolution used")
     start_date: str
     end_date: str
     count: int

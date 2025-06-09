@@ -17,12 +17,12 @@ router = APIRouter(
 
 @router.get("/symbols", response_model=List[str])
 async def get_available_symbols(
-    timeframe: str = Query(default="1m", pattern="^(1m|5m|15m|30m|1h|4h|1d|1w)$"),
+    source_resolution: str = Query(default="1m", description="Source data resolution (folder name)"),
     user_id: str = Depends(verify_token)
 ):
-    """Get list of available symbols"""
+    """Get list of available symbols from source data"""
     try:
-        symbols = await duckdb_service.get_available_symbols(timeframe)
+        symbols = await duckdb_service.get_available_symbols(source_resolution)
         return symbols
     except Exception as e:
         logger.error(f"Failed to get symbols: {e}")
@@ -34,12 +34,12 @@ async def get_available_symbols(
 @router.get("/dates/{symbol}", response_model=List[str])
 async def get_available_dates(
     symbol: str,
-    timeframe: str = Query(default="1m", pattern="^(1m|5m|15m|30m|1h|4h|1d|1w)$"),
+    source_resolution: str = Query(default="1m", description="Source data resolution (folder name)"),
     user_id: str = Depends(verify_token)
 ):
-    """Get list of available dates for a symbol"""
+    """Get list of available dates for a symbol from source data"""
     try:
-        dates = await duckdb_service.get_available_dates(symbol.upper(), timeframe)
+        dates = await duckdb_service.get_available_dates(symbol.upper(), source_resolution)
         return dates
     except Exception as e:
         logger.error(f"Failed to get dates for {symbol}: {e}")
@@ -51,36 +51,38 @@ async def get_available_dates(
 @router.post("/data", response_model=OHLCVResponse)
 async def get_ohlcv_data(
     request: OHLCVRequest,
+    source_resolution: str = Query(default="1m", description="Source data resolution (folder name)"),
     user_id: str = Depends(verify_token)
 ):
     """
     Get OHLCV data for a symbol within date range.
     
-    Supports multiple timeframes by aggregating 1-minute data on the fly:
-    - 1m: Raw data
-    - 5m, 15m, 30m: Aggregated from 1m
-    - 1h, 4h: Aggregated from 1m
-    - 1d, 1w: Aggregated from 1m
+    Args:
+        request: OHLCV request parameters (symbol, dates, timeframe)
+        source_resolution: Source data folder (currently only "1m" available)
+    
+    The timeframe in the request specifies the desired aggregation:
+    - 1m: Raw data (if source_resolution is also 1m)
+    - 5m, 15m, 30m: Aggregated from source using floor(unix_time / interval)
+    - 1h, 4h: Aggregated from source using floor(unix_time / interval)
+    - 1d, 1w: Aggregated from source using floor(unix_time / interval)
     """
     try:
-        # For now, retrieve 1m data
+        # Get data with proper aggregation
         data = await duckdb_service.get_ohlcv_data(
             symbol=request.symbol,
             start_date=request.start_date,
             end_date=request.end_date,
-            timeframe="1m"  # Always fetch 1m data
+            timeframe=request.timeframe,
+            source_resolution=source_resolution
         )
-        
-        # If requested timeframe is not 1m, aggregate the data
-        if request.timeframe != "1m":
-            data = await aggregate_ohlcv_data(data, request.timeframe)
         
         # Convert to response format
         ohlcv_data = [
             OHLCVData(
                 symbol=row.get("symbol", request.symbol),
                 timestamp=row["timestamp"],
-                unix_time=int(datetime.fromisoformat(row["timestamp"]).timestamp() * 1000),
+                unix_time=int(row.get("unix_time", 0)),
                 open=float(row["open"]),
                 high=float(row["high"]),
                 low=float(row["low"]),
@@ -99,8 +101,6 @@ async def get_ohlcv_data(
             data=ohlcv_data
         )
         
-        # Set cache headers for 5 minutes
-        # Frontend can cache this data to reduce API calls
         return response
         
     except ValueError as e:
@@ -121,12 +121,19 @@ async def get_ohlcv_data_simple(
     start_date: date = Query(..., description="Start date (YYYY-MM-DD)"),
     end_date: date = Query(..., description="End date (YYYY-MM-DD)"),
     timeframe: str = Query(default="1d", pattern="^(1m|5m|15m|30m|1h|4h|1d|1w)$"),
+    source_resolution: str = Query(default="1m", description="Source data resolution (folder name)"),
     response: Response = None,
     user_id: str = Depends(verify_token)
 ):
     """
-    Simplified GET endpoint for OHLCV data.
+    Simplified GET endpoint for OHLCV data with proper aggregation.
     Returns data in a format optimized for charting libraries.
+    
+    All timeframes are properly aggregated from source data:
+    - Uses floor(unix_time / interval_seconds) for precise time bucketing
+    - OHLC aggregation: first(open), max(high), min(low), last(close)
+    - Volume aggregation: sum(volume)
+    - Source resolution specifies which folder to read from (currently only "1m")
     """
     request = OHLCVRequest(
         symbol=symbol,
@@ -135,7 +142,7 @@ async def get_ohlcv_data_simple(
         timeframe=timeframe
     )
     
-    ohlcv_response = await get_ohlcv_data(request, user_id)
+    ohlcv_response = await get_ohlcv_data(request, source_resolution, user_id)
     
     # Set cache headers
     # Cache for 5 minutes for recent data, longer for historical
@@ -151,6 +158,10 @@ async def get_ohlcv_data_simple(
     chart_data = {
         "symbol": ohlcv_response.symbol,
         "timeframe": ohlcv_response.timeframe,
+        "source_resolution": source_resolution,
+        "start_date": ohlcv_response.start_date,
+        "end_date": ohlcv_response.end_date,
+        "count": ohlcv_response.count,
         "data": [
             [
                 point.unix_time,  # Unix timestamp in milliseconds
@@ -165,13 +176,3 @@ async def get_ohlcv_data_simple(
     }
     
     return chart_data
-
-async def aggregate_ohlcv_data(data: List[dict], timeframe: str) -> List[dict]:
-    """
-    Aggregate 1-minute OHLCV data to higher timeframes.
-    This is a placeholder - in production, this should be done in DuckDB for efficiency.
-    """
-    # For now, return the 1m data
-    # TODO: Implement proper aggregation logic in DuckDB
-    logger.warning(f"Aggregation to {timeframe} not yet implemented, returning 1m data")
-    return data
