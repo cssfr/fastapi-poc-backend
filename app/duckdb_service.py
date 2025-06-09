@@ -42,20 +42,41 @@ class DuckDBService:
             logger.error(f"Failed to configure DuckDB S3 settings: {e}")
             raise
     
-    def _build_s3_paths(self, symbol: str, start_date: date, end_date: date, source_resolution: str = "1m") -> List[str]:
-        """Build list of S3 paths for the date range from source data"""
+    def _build_daily_paths(self, symbol: str, start_date: date, end_date: date, source_resolution: str = "1m") -> List[str]:
+        """Build list of S3 paths for daily files (original 1m structure)"""
         s3_paths = []
         current_date = start_date
         
         while current_date <= end_date:
             # Build S3 path: s3://dukascopy-node/ohlcv/1m/symbol=DAX/date=2013-10-01/DAX_2013-10-01.parquet
-            # source_resolution is the folder name (currently only "1m")
-            # timeframe parameter is used for aggregation logic
             s3_path = f"s3://{MINIO_BUCKET}/ohlcv/{source_resolution}/symbol={symbol}/date={current_date.isoformat()}/{symbol}_{current_date.isoformat()}.parquet"
             s3_paths.append(s3_path)
             current_date += timedelta(days=1)
         
         return s3_paths
+    
+    def _build_yearly_paths(self, symbol: str, start_date: date, end_date: date, source_resolution: str = "1Y") -> List[str]:
+        """Build list of S3 paths for yearly files (new 1Y structure)"""
+        s3_paths = []
+        
+        # Extract unique years from the date range
+        start_year = start_date.year
+        end_year = end_date.year
+        
+        for year in range(start_year, end_year + 1):
+            # Build S3 path: s3://dukascopy-node/ohlcv/1Y/symbol=BTC/year=2017/BTC_2017.parquet
+            s3_path = f"s3://{MINIO_BUCKET}/ohlcv/{source_resolution}/symbol={symbol}/year={year}/{symbol}_{year}.parquet"
+            s3_paths.append(s3_path)
+        
+        return s3_paths
+    
+    def _build_s3_paths(self, symbol: str, start_date: date, end_date: date, source_resolution: str = "1m") -> List[str]:
+        """Build list of S3 paths for the date range based on source resolution"""
+        if source_resolution == "1Y":
+            return self._build_yearly_paths(symbol, start_date, end_date, source_resolution)
+        else:
+            # Default to daily paths for 1m and any other resolution
+            return self._build_daily_paths(symbol, start_date, end_date, source_resolution)
     
     async def get_ohlcv_data(
         self,
@@ -72,29 +93,31 @@ class DuckDBService:
             start_date: Start date for data
             end_date: End date for data  
             timeframe: Target aggregation timeframe (1m, 5m, 15m, 1h, 1d, etc.)
-            source_resolution: Source data folder (currently only "1m")
+            source_resolution: Source data folder ("1m" for daily files, "1Y" for yearly files)
         """
         
         if not MinIOService.is_available():
             raise RuntimeError("MinIO service not available")
         
-        # Build paths from source data (currently only 1m available)
+        # Build paths based on source resolution
         s3_paths = self._build_s3_paths(symbol, start_date, end_date, source_resolution)
         
         if not s3_paths:
             raise ValueError(f"No data paths generated for symbol {symbol} between {start_date} and {end_date}")
         
-        # Convert dates to unix timestamps
+        # Convert dates to unix timestamps for filtering
         start_unix = int(datetime.combine(start_date, datetime.min.time()).timestamp())
         end_unix = int(datetime.combine(end_date, datetime.max.time()).timestamp())
         
         try:
-            if timeframe == source_resolution:
-                # Raw data - no aggregation needed (e.g., requesting 1m from 1m source)
+            # For 1Y source, we always need to filter by date since files contain full years
+            # For 1m source, we can optimize by not aggregating if timeframe matches
+            if source_resolution == "1m" and timeframe == "1m":
+                # Raw 1m data from 1m source - no aggregation needed
                 query = self._build_raw_query(s3_paths, symbol, start_unix, end_unix)
             else:
-                # Aggregated data (e.g., requesting 5m/1h/1d from 1m source)
-                query = self._build_aggregated_query(s3_paths, symbol, start_unix, end_unix, timeframe)
+                # Aggregated data or 1Y source (always needs date filtering)
+                query = self._build_aggregated_query(s3_paths, symbol, start_unix, end_unix, timeframe, source_resolution)
             
             logger.debug(f"Executing DuckDB query for {timeframe} from {source_resolution} source: {query}")
             
@@ -123,7 +146,7 @@ class DuckDBService:
             raise
     
     def _build_raw_query(self, s3_paths: List[str], symbol: str, start_unix: int, end_unix: int) -> str:
-        """Build query for raw 1-minute data"""
+        """Build query for raw 1-minute data (only used for 1m source when requesting 1m timeframe)"""
         paths_str = "['" + "', '".join(s3_paths) + "']"
         
         return f"""
@@ -143,12 +166,13 @@ class DuckDBService:
             ORDER BY unix_time ASC
         """
     
-    def _build_aggregated_query(self, s3_paths: List[str], symbol: str, start_unix: int, end_unix: int, timeframe: str) -> str:
+    def _build_aggregated_query(self, s3_paths: List[str], symbol: str, start_unix: int, end_unix: int, timeframe: str, source_resolution: str) -> str:
         """Build query for aggregated data using custom floor approach"""
         paths_str = "['" + "', '".join(s3_paths) + "']"
         
         # Calculate interval in seconds
         interval_seconds = {
+            "1m": 60,       # 1 minute
             "5m": 300,      # 5 minutes
             "15m": 900,     # 15 minutes  
             "30m": 1800,    # 30 minutes
@@ -158,6 +182,8 @@ class DuckDBService:
             "1w": 604800    # 1 week
         }.get(timeframe, 86400)
         
+        # For 1Y source, we always need date filtering since files contain full years
+        # For other sources, we also filter for safety
         return f"""
             SELECT 
                 symbol,
@@ -197,11 +223,18 @@ class DuckDBService:
             # Extract unique symbols from object names
             symbols = set()
             for obj in objects:
-                # Parse symbol from path: ohlcv/1m/symbol=DAX/date=2013-10-01/DAX_2013-10-01.parquet
-                parts = obj['name'].split('/')
-                if len(parts) >= 3 and parts[2].startswith('symbol='):
-                    symbol = parts[2].replace('symbol=', '')
-                    symbols.add(symbol)
+                if source_resolution == "1Y":
+                    # Parse symbol from path: ohlcv/1Y/symbol=BTC/year=2017/BTC_2017.parquet
+                    parts = obj['name'].split('/')
+                    if len(parts) >= 3 and parts[2].startswith('symbol='):
+                        symbol = parts[2].replace('symbol=', '')
+                        symbols.add(symbol)
+                else:
+                    # Parse symbol from path: ohlcv/1m/symbol=DAX/date=2013-10-01/DAX_2013-10-01.parquet
+                    parts = obj['name'].split('/')
+                    if len(parts) >= 3 and parts[2].startswith('symbol='):
+                        symbol = parts[2].replace('symbol=', '')
+                        symbols.add(symbol)
             
             return sorted(list(symbols))
             
@@ -216,20 +249,92 @@ class DuckDBService:
             prefix = f"ohlcv/{source_resolution}/symbol={symbol}/"
             objects = await MinIOService.list_objects(MINIO_BUCKET, prefix=prefix)
             
-            # Extract dates from object names
+            # Extract dates or years from object names
             dates = []
             for obj in objects:
-                # Parse date from path: ohlcv/1m/symbol=DAX/date=2013-10-01/DAX_2013-10-01.parquet
-                parts = obj['name'].split('/')
-                if len(parts) >= 4 and parts[3].startswith('date='):
-                    date_str = parts[3].replace('date=', '')
-                    dates.append(date_str)
+                if source_resolution == "1Y":
+                    # Parse year from path: ohlcv/1Y/symbol=BTC/year=2017/BTC_2017.parquet
+                    parts = obj['name'].split('/')
+                    if len(parts) >= 4 and parts[3].startswith('year='):
+                        year = parts[3].replace('year=', '')
+                        dates.append(year)
+                else:
+                    # Parse date from path: ohlcv/1m/symbol=DAX/date=2013-10-01/DAX_2013-10-01.parquet
+                    parts = obj['name'].split('/')
+                    if len(parts) >= 4 and parts[3].startswith('date='):
+                        date_str = parts[3].replace('date=', '')
+                        dates.append(date_str)
             
             return sorted(dates)
             
         except Exception as e:
             logger.error(f"Failed to get available dates for {symbol}: {e}")
             raise
+    
+    async def get_available_years(self, symbol: str, source_resolution: str = "1Y") -> List[str]:
+        """Get list of available years for a symbol from yearly source data"""
+        if source_resolution != "1Y":
+            raise ValueError("get_available_years only works with 1Y source resolution")
+        
+        return await self.get_available_dates(symbol, source_resolution)
+    
+    async def performance_test(
+        self,
+        symbol: str,
+        start_date: date,
+        end_date: date,
+        timeframe: str = "1d"
+    ) -> Dict[str, Any]:
+        """Compare performance between 1m and 1Y sources for the same query"""
+        import time
+        
+        results = {}
+        
+        # Test 1m source
+        try:
+            start_time = time.time()
+            data_1m = await self.get_ohlcv_data(symbol, start_date, end_date, timeframe, "1m")
+            end_time = time.time()
+            
+            results["1m"] = {
+                "duration_seconds": round(end_time - start_time, 3),
+                "record_count": len(data_1m),
+                "success": True
+            }
+        except Exception as e:
+            results["1m"] = {
+                "duration_seconds": None,
+                "record_count": 0,
+                "success": False,
+                "error": str(e)
+            }
+        
+        # Test 1Y source
+        try:
+            start_time = time.time()
+            data_1y = await self.get_ohlcv_data(symbol, start_date, end_date, timeframe, "1Y")
+            end_time = time.time()
+            
+            results["1Y"] = {
+                "duration_seconds": round(end_time - start_time, 3),
+                "record_count": len(data_1y),
+                "success": True
+            }
+        except Exception as e:
+            results["1Y"] = {
+                "duration_seconds": None,
+                "record_count": 0,
+                "success": False,
+                "error": str(e)
+            }
+        
+        # Calculate improvement
+        if results["1m"]["success"] and results["1Y"]["success"]:
+            if results["1m"]["duration_seconds"] > 0:
+                improvement = ((results["1m"]["duration_seconds"] - results["1Y"]["duration_seconds"]) / results["1m"]["duration_seconds"]) * 100
+                results["performance_improvement_percent"] = round(improvement, 2)
+        
+        return results
     
     def close(self):
         """Close DuckDB connection"""

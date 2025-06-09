@@ -1,6 +1,6 @@
 """OHLCV data endpoints"""
 from fastapi import APIRouter, Depends, HTTPException, status, Query, Response
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from datetime import date, datetime, timedelta
 from ..auth import verify_token
 from ..models_ohlcv import OHLCVRequest, OHLCVResponse, OHLCVData
@@ -17,11 +17,17 @@ router = APIRouter(
 
 @router.get("/symbols", response_model=List[str])
 async def get_available_symbols(
-    source_resolution: str = Query(default="1m", description="Source data resolution (folder name)"),
+    source_resolution: str = Query(default="1m", description="Source data resolution (1m or 1Y)"),
     user_id: str = Depends(verify_token)
 ):
     """Get list of available symbols from source data"""
     try:
+        if source_resolution not in ["1m", "1Y"]:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="source_resolution must be either '1m' or '1Y'"
+            )
+        
         symbols = await duckdb_service.get_available_symbols(source_resolution)
         return symbols
     except Exception as e:
@@ -34,11 +40,17 @@ async def get_available_symbols(
 @router.get("/dates/{symbol}", response_model=List[str])
 async def get_available_dates(
     symbol: str,
-    source_resolution: str = Query(default="1m", description="Source data resolution (folder name)"),
+    source_resolution: str = Query(default="1m", description="Source data resolution (1m or 1Y)"),
     user_id: str = Depends(verify_token)
 ):
-    """Get list of available dates for a symbol from source data"""
+    """Get list of available dates/years for a symbol from source data"""
     try:
+        if source_resolution not in ["1m", "1Y"]:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="source_resolution must be either '1m' or '1Y'"
+            )
+        
         dates = await duckdb_service.get_available_dates(symbol.upper(), source_resolution)
         return dates
     except Exception as e:
@@ -51,7 +63,7 @@ async def get_available_dates(
 @router.post("/data", response_model=OHLCVResponse)
 async def get_ohlcv_data(
     request: OHLCVRequest,
-    source_resolution: str = Query(default="1m", description="Source data resolution (folder name)"),
+    source_resolution: str = Query(default="1m", description="Source data resolution (1m or 1Y)"),
     user_id: str = Depends(verify_token)
 ):
     """
@@ -59,7 +71,7 @@ async def get_ohlcv_data(
     
     Args:
         request: OHLCV request parameters (symbol, dates, timeframe)
-        source_resolution: Source data folder (currently only "1m" available)
+        source_resolution: Source data folder ("1m" for daily files, "1Y" for yearly files)
     
     The timeframe in the request specifies the desired aggregation:
     - 1m: Raw data (if source_resolution is also 1m)
@@ -68,6 +80,12 @@ async def get_ohlcv_data(
     - 1d, 1w: Aggregated from source using floor(unix_time / interval)
     """
     try:
+        if source_resolution not in ["1m", "1Y"]:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="source_resolution must be either '1m' or '1Y'"
+            )
+        
         # Get data with proper aggregation
         data = await duckdb_service.get_ohlcv_data(
             symbol=request.symbol,
@@ -121,7 +139,7 @@ async def get_ohlcv_data_simple(
     start_date: date = Query(..., description="Start date (YYYY-MM-DD)"),
     end_date: date = Query(..., description="End date (YYYY-MM-DD)"),
     timeframe: str = Query(default="1d", pattern="^(1m|5m|15m|30m|1h|4h|1d|1w)$"),
-    source_resolution: str = Query(default="1m", description="Source data resolution (folder name)"),
+    source_resolution: str = Query(default="1m", description="Source data resolution (1m or 1Y)"),
     response: Response = None,
     user_id: str = Depends(verify_token)
 ):
@@ -133,8 +151,14 @@ async def get_ohlcv_data_simple(
     - Uses floor(unix_time / interval_seconds) for precise time bucketing
     - OHLC aggregation: first(open), max(high), min(low), last(close)
     - Volume aggregation: sum(volume)
-    - Source resolution specifies which folder to read from (currently only "1m")
+    - Source resolution specifies which folder to read from ("1m" or "1Y")
     """
+    if source_resolution not in ["1m", "1Y"]:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="source_resolution must be either '1m' or '1Y'"
+        )
+    
     request = OHLCVRequest(
         symbol=symbol,
         start_date=start_date,
@@ -164,7 +188,7 @@ async def get_ohlcv_data_simple(
         "count": ohlcv_response.count,
         "data": [
             [
-                point.unix_time,  # Unix timestamp in milliseconds
+                point.unix_time,  # Unix timestamp
                 point.open,
                 point.high,
                 point.low,
@@ -176,3 +200,85 @@ async def get_ohlcv_data_simple(
     }
     
     return chart_data
+
+@router.get("/performance-test/{symbol}")
+async def performance_test(
+    symbol: str,
+    start_date: date = Query(..., description="Start date (YYYY-MM-DD)"),
+    end_date: date = Query(..., description="End date (YYYY-MM-DD)"),
+    timeframe: str = Query(default="1d", pattern="^(1m|5m|15m|30m|1h|4h|1d|1w)$"),
+    user_id: str = Depends(verify_token)
+) -> Dict[str, Any]:
+    """
+    Performance test comparing 1m vs 1Y source resolution for the same query.
+    
+    Returns timing information and performance metrics for both approaches.
+    Useful for determining which source resolution is more efficient for different scenarios.
+    """
+    try:
+        logger.info(f"Running performance test for {symbol} from {start_date} to {end_date} ({timeframe})")
+        
+        results = await duckdb_service.performance_test(
+            symbol=symbol.upper(),
+            start_date=start_date,
+            end_date=end_date,
+            timeframe=timeframe
+        )
+        
+        # Add metadata about the test
+        results["test_metadata"] = {
+            "symbol": symbol.upper(),
+            "start_date": start_date.isoformat(),
+            "end_date": end_date.isoformat(),
+            "timeframe": timeframe,
+            "date_range_days": (end_date - start_date).days + 1,
+            "test_timestamp": datetime.utcnow().isoformat()
+        }
+        
+        return results
+        
+    except Exception as e:
+        logger.error(f"Performance test failed: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Performance test failed"
+        )
+
+@router.get("/storage-info")
+async def get_storage_info(
+    source_resolution: str = Query(default="1m", description="Source data resolution (1m or 1Y)"),
+    user_id: str = Depends(verify_token)
+) -> Dict[str, Any]:
+    """Get information about the storage structure for a given resolution"""
+    try:
+        if source_resolution not in ["1m", "1Y"]:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="source_resolution must be either '1m' or '1Y'"
+            )
+        
+        info = await minio_service.get_storage_structure_info(source_resolution)
+        return info
+        
+    except Exception as e:
+        logger.error(f"Failed to get storage info: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve storage information"
+        )
+
+@router.get("/storage-comparison")
+async def compare_storage_structures(
+    user_id: str = Depends(verify_token)
+) -> Dict[str, Any]:
+    """Compare storage structures between 1m and 1Y resolutions"""
+    try:
+        comparison = await minio_service.compare_storage_structures()
+        return comparison
+        
+    except Exception as e:
+        logger.error(f"Failed to compare storage structures: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to compare storage structures"
+        )
