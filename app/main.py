@@ -71,6 +71,7 @@ app.add_middleware(LoggingMiddleware)
 origins = [
     "http://localhost:5173",
     "https://react-stage.backtesting.theworkpc.com",
+    "https://front-stage.backtesting.theworkpc.com",
 ]
 
 app.add_middleware(
