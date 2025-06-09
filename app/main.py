@@ -70,7 +70,8 @@ app.add_middleware(LoggingMiddleware)
 # CORS configuration
 origins = [
     "http://localhost:5173",
-    "https://react-dev.backtesting.theworkpc.com",
+    "https://react-stage.backtesting.theworkpc.com",
+    "https://front-stage.backtesting.theworkpc.com",
 ]
 
 app.add_middleware(
