@@ -87,6 +87,7 @@ app.add_middleware(LoggingMiddleware)
 # CORS REGEX configuration
 regex_pattern = (
     r"http:\/\/localhost:5173"
+    r"http:\/\/localhost:3000"
     r"|https:\/\/react-stage\.backtesting\.theworkpc\.com"
     r"|https:\/\/front-stage\.backtesting\.theworkpc\.com"
     r"|https:\/\/.*\.front-stage\.backtesting\.theworkpc\.com"
