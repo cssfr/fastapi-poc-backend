@@ -72,7 +72,7 @@ origins = [
     "http://localhost:5173",
     "https://react-stage.backtesting.theworkpc.com",
     "https://front-stage.backtesting.theworkpc.com",
-    "https://1.gs0ow4kc8c880gwkgkk4wkg4.backtesting.theworkpc.com/",
+    "https://1.gs0ow4kc8c880gwkgkk4wkg4.backtesting.theworkpc.com",
 ]
 
 app.add_middleware(
