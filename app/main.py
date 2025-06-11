@@ -84,21 +84,38 @@ app.add_middleware(LoggingMiddleware)
 #     allow_headers=["*"],
 # )
 
-# CORS REGEX configuration
-regex_pattern = (
-    r"http:\/\/localhost:5173"
-    r"http:\/\/localhost:3000"
-    r"|https:\/\/react-stage\.backtesting\.theworkpc\.com"
-    r"|https:\/\/front-stage\.backtesting\.theworkpc\.com"
+# # CORS REGEX configuration suggested by ChatGPT first
+# regex_pattern = (
+#     r"http:\/\/localhost:5173"
+#     r"http:\/\/localhost:3000"
+#     r"|https:\/\/react-stage\.backtesting\.theworkpc\.com"
+#     r"|https:\/\/front-stage\.backtesting\.theworkpc\.com"
+#     r"|https:\/\/.*\.front-stage\.backtesting\.theworkpc\.com"
+# )
+
+# app.add_middleware(
+#     CORSMiddleware,
+#     allow_origin_regex=regex_pattern,
+#     allow_credentials=True,
+#     allow_methods=["*"],
+#     allow_headers=["*"],
+# )
+
+# # CORS REGEX configuration suggested by ChatGPT second
+origins = [
+    "http://localhost:3000",
+    "http://localhost:5173",      # optional
+    "https://f-stage.backtesting.theworkpc.com",
     r"|https:\/\/.*\.front-stage\.backtesting\.theworkpc\.com"
-)
+]
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origin_regex=regex_pattern,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=origins,
+    allow_origin_regex=r"|https:\/\/.*\.front-stage\.backtesting\.theworkpc\.com",
+    allow_credentials=True,       # for JWT/auth headers
+    allow_methods=["*"],          # GET, POST, etc.
+    allow_headers=["*"],          # Auth headers
 )
 
 # Include routers
