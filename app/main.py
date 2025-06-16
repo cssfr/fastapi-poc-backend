@@ -106,6 +106,7 @@ origins = [
     "http://localhost:3000",
     "http://localhost:5173",      # optional
     "https://f-stage.backtesting.theworkpc.com",
+    "https://front-stage.backtesting.theworkpc.com",
     r"|https:\/\/.*\.front-stage\.backtesting\.theworkpc\.com"
 ]
 
