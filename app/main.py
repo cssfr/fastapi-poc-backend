@@ -113,7 +113,7 @@ origins = [
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
-    allow_origin_regex=r"|https:\/\/.*\.front-stage\.backtesting\.theworkpc\.com",
+    allow_origin_regex=r"https:\/\/(?:.*\.)?front-stage\.backtesting\.theworkpc\.com",
     allow_credentials=True,       # for JWT/auth headers
     allow_methods=["*"],          # GET, POST, etc.
     allow_headers=["*"],          # Auth headers
