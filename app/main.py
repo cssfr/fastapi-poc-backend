@@ -22,6 +22,7 @@ from typing import List
 import logging
 import uuid
 import os
+import re
 
 # Setup logging
 setup_logging(
@@ -68,19 +69,53 @@ app.add_middleware(ErrorHandlingMiddleware)
 app.add_middleware(LoggingMiddleware)
 
 # CORS configuration
+# origins = [
+#     "http://localhost:5173",
+#     "https://react-stage.backtesting.theworkpc.com",
+#     "https://front-stage.backtesting.theworkpc.com",
+#     "https://gs0ow4kc8c880gwkgkk4wkg4.backtesting.theworkpc.com",
+# ]
+
+# app.add_middleware(
+#     CORSMiddleware,
+#     allow_origins=origins,
+#     allow_credentials=True,
+#     allow_methods=["*"],
+#     allow_headers=["*"],
+# )
+
+# # CORS REGEX configuration suggested by ChatGPT first
+# regex_pattern = (
+#     r"http:\/\/localhost:5173"
+#     r"http:\/\/localhost:3000"
+#     r"|https:\/\/react-stage\.backtesting\.theworkpc\.com"
+#     r"|https:\/\/front-stage\.backtesting\.theworkpc\.com"
+#     r"|https:\/\/.*\.front-stage\.backtesting\.theworkpc\.com"
+# )
+
+# app.add_middleware(
+#     CORSMiddleware,
+#     allow_origin_regex=regex_pattern,
+#     allow_credentials=True,
+#     allow_methods=["*"],
+#     allow_headers=["*"],
+# )
+
+# # CORS REGEX configuration suggested by ChatGPT second
 origins = [
-    "http://localhost:5173",
-    "https://react-stage.backtesting.theworkpc.com",
-    "https://front-stage.backtesting.theworkpc.com",
-    "https://1.gs0ow4kc8c880gwkgkk4wkg4.backtesting.theworkpc.com/",
+    "http://localhost:3000",
+    "http://localhost:5173",      # optional
+    "https://f-stage.backtesting.theworkpc.com",
+    r"|https:\/\/.*\.front-stage\.backtesting\.theworkpc\.com"
 ]
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origin_regex=r"|https:\/\/.*\.front-stage\.backtesting\.theworkpc\.com",
+    allow_credentials=True,       # for JWT/auth headers
+    allow_methods=["*"],          # GET, POST, etc.
+    allow_headers=["*"],          # Auth headers
 )
 
 # Include routers
