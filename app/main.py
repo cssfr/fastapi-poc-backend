@@ -104,6 +104,7 @@ app.add_middleware(LoggingMiddleware)
 # # CORS REGEX configuration suggested by ChatGPT second
 origins = [
     "http://localhost:3000",
+    "http://localhost:3001",
     "http://localhost:5173",      # optional
     "https://f-stage.backtesting.theworkpc.com",
     "https://front-stage.backtesting.theworkpc.com",
