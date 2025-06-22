@@ -6,9 +6,8 @@ from ..auth import verify_token
 from ..models_ohlcv import OHLCVRequest, OHLCVResponse, OHLCVData, InstrumentMetadata, InstrumentsResponse, DataRange
 from ..duckdb_service import duckdb_service
 from ..minio_client import minio_service
-from ..instrument_metadata_service import instrument_metadata_service
+from ..fast_metadata_service import fast_metadata_service
 import logging
-import asyncio
 
 logger = logging.getLogger(__name__)
 
@@ -17,147 +16,58 @@ router = APIRouter(
     tags=["ohlcv"]
 )
 
-# Cache for data boundaries - expires every hour
-_data_boundaries_cache = {}
-_cache_timestamp = None
-CACHE_DURATION = 3600  # 1 hour in seconds
-
-async def get_data_boundaries_for_symbol(symbol: str, source_resolution: str = "1m") -> Dict[str, str]:
-    """Get earliest and latest available dates for a symbol"""
-    try:
-        dates = await duckdb_service.get_available_dates(symbol, source_resolution)
-        if not dates:
-            return {"earliest": None, "latest": None}
-        
-        if source_resolution == "1Y":
-            # For yearly data, convert years to date ranges
-            years = sorted([int(d) for d in dates])
-            return {
-                "earliest": f"{years[0]}-01-01",
-                "latest": f"{years[-1]}-12-31"
-            }
-        else:
-            # For daily data, dates are already in YYYY-MM-DD format
-            sorted_dates = sorted(dates)
-            return {
-                "earliest": sorted_dates[0],
-                "latest": sorted_dates[-1]
-            }
-    except Exception as e:
-        logger.warning(f"Failed to get data boundaries for {symbol}: {e}")
-        return {"earliest": None, "latest": None}
-
-async def get_cached_data_boundaries() -> Dict[str, Dict[str, str]]:
-    """Get cached data boundaries for all symbols"""
-    global _data_boundaries_cache, _cache_timestamp
-    
-    current_time = datetime.utcnow().timestamp()
-    
-    # Check if cache is valid
-    if (_cache_timestamp and 
-        current_time - _cache_timestamp < CACHE_DURATION and 
-        _data_boundaries_cache):
-        return _data_boundaries_cache
-    
-    # Refresh cache
-    logger.info("Refreshing data boundaries cache...")
-    
-    try:
-        # Get available symbols from both sources
-        symbols_1m = await duckdb_service.get_available_symbols("1m")
-        symbols_1y = await duckdb_service.get_available_symbols("1Y")
-        all_symbols = set(symbols_1m + symbols_1y)
-        
-        # Get boundaries for each symbol from both sources concurrently
-        tasks = []
-        symbol_list = list(all_symbols)
-        
-        for symbol in symbol_list:
-            tasks.append(get_data_boundaries_for_symbol(symbol, "1m"))
-            tasks.append(get_data_boundaries_for_symbol(symbol, "1Y"))
-        
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-        
-        # Process results
-        boundaries = {}
-        for i, symbol in enumerate(symbol_list):
-            boundaries_1m = results[i * 2] if not isinstance(results[i * 2], Exception) else {"earliest": None, "latest": None}
-            boundaries_1y = results[i * 2 + 1] if not isinstance(results[i * 2 + 1], Exception) else {"earliest": None, "latest": None}
-            
-            # Combine boundaries from both sources
-            earliest_dates = [d for d in [boundaries_1m.get("earliest"), boundaries_1y.get("earliest")] if d]
-            latest_dates = [d for d in [boundaries_1m.get("latest"), boundaries_1y.get("latest")] if d]
-            
-            boundaries[symbol] = {
-                "earliest": min(earliest_dates) if earliest_dates else None,
-                "latest": max(latest_dates) if latest_dates else None,
-                "sources": {
-                    "1m": boundaries_1m,
-                    "1Y": boundaries_1y
-                }
-            }
-        
-        _data_boundaries_cache = boundaries
-        _cache_timestamp = current_time
-        
-        logger.info(f"Data boundaries cache refreshed for {len(boundaries)} symbols")
-        return boundaries
-        
-    except Exception as e:
-        logger.error(f"Failed to refresh data boundaries cache: {e}")
-        return _data_boundaries_cache or {}
-
 @router.get("/instruments", response_model=InstrumentsResponse)
 async def get_instruments_metadata(
-    include_boundaries: bool = Query(default=True, description="Include data range boundaries"),
-    source_resolution: str = Query(default="both", description="Source resolution to check (1m, 1Y, or both)"),
+    source_resolution: str = Query(default="1Y", description="Source resolution to filter by (1Y, 1m, or both)"),
     user_id: str = Depends(verify_token)
 ) -> InstrumentsResponse:
     """
     Get comprehensive metadata for all available instruments from external sources.
     
-    Metadata is loaded from MinIO at: metadata/instruments.json
-    Data boundaries are determined by scanning actual data files.
+    ⚡ FAST: Reads data boundaries directly from metadata/instruments.json
+    🎯 ACCURATE: Boundaries updated daily via cron job
     """
     try:
-        # Get available symbols from data files
-        if source_resolution == "both":
-            symbols_1m = await duckdb_service.get_available_symbols("1m")
-            symbols_1y = await duckdb_service.get_available_symbols("1Y")
-            all_symbols = sorted(set(symbols_1m + symbols_1y))
-            available_sources = ["1m", "1Y"]
-        elif source_resolution in ["1m", "1Y"]:
-            all_symbols = await duckdb_service.get_available_symbols(source_resolution)
-            available_sources = [source_resolution]
-        else:
+        # Validate source resolution
+        if source_resolution not in ["1Y", "1m", "both"]:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="source_resolution must be '1m', '1Y', or 'both'"
+                detail="source_resolution must be '1Y', '1m', or 'both'"
             )
         
-        # Get instrument metadata from external source
-        all_metadata = await instrument_metadata_service.get_all_metadata()
+        # Get all metadata (includes boundaries)
+        all_metadata = await fast_metadata_service.get_all_metadata()
         
-        # Get data boundaries if requested
-        boundaries = {}
-        if include_boundaries:
-            boundaries = await get_cached_data_boundaries()
+        if not all_metadata:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Metadata service unavailable"
+            )
+        
+        # Get instruments that have data available
+        if source_resolution == "both":
+            available_symbols = await fast_metadata_service.get_instruments_with_data("both")
+            available_sources = ["1Y", "1m"]
+        else:
+            available_symbols = await fast_metadata_service.get_instruments_with_data(source_resolution)
+            available_sources = [source_resolution]
         
         # Build instrument metadata
         instruments = []
         
-        for symbol in all_symbols:
-            # Get metadata from external source
-            metadata = await instrument_metadata_service.get_metadata(symbol)
+        for symbol in available_symbols:
+            # Get metadata from fast service
+            metadata = await fast_metadata_service.get_metadata(symbol)
             
-            # Get data boundaries
-            data_range = None
-            if include_boundaries and symbol in boundaries:
-                boundary = boundaries[symbol]
-                data_range = DataRange(
-                    earliest=boundary.get("earliest"),
-                    latest=boundary.get("latest"),
-                    sources=boundary.get("sources", {})
+            # Extract data range (already included in metadata)
+            data_range = metadata.get("dataRange")
+            data_range_obj = None
+            
+            if data_range:
+                data_range_obj = DataRange(
+                    earliest=data_range.get("earliest"),
+                    latest=data_range.get("latest"),
+                    sources=data_range.get("sources", {})
                 )
             
             # Build instrument object
@@ -173,7 +83,7 @@ async def get_instruments_metadata(
                 description=metadata["description"],
                 sector=metadata["sector"],
                 country=metadata["country"],
-                dataRange=data_range,
+                dataRange=data_range_obj,
                 availableTimeframes=["1m", "5m", "15m", "30m", "1h", "4h", "1d", "1w"],
                 sourceResolutions=available_sources
             )
@@ -181,18 +91,13 @@ async def get_instruments_metadata(
             instruments.append(instrument)
         
         # Get cache information
-        metadata_cache_info = instrument_metadata_service.get_cache_info()
+        cache_info = fast_metadata_service.get_cache_info()
         
         return InstrumentsResponse(
             count=len(instruments),
             instruments=instruments,
             lastUpdated=datetime.utcnow().isoformat(),
-            cacheInfo={
-                "boundariesCached": include_boundaries and bool(_cache_timestamp),
-                "boundariesCacheAge": int(datetime.utcnow().timestamp() - _cache_timestamp) if _cache_timestamp else None,
-                "boundariesCacheDuration": CACHE_DURATION,
-                "metadataCache": metadata_cache_info
-            }
+            cacheInfo=cache_info
         )
         
     except HTTPException:
@@ -206,32 +111,24 @@ async def get_instruments_metadata(
 
 @router.post("/instruments/refresh-cache")
 async def refresh_instruments_cache(user_id: str = Depends(verify_token)):
-    """Force refresh of both metadata and data boundaries caches"""
-    global _data_boundaries_cache, _cache_timestamp
-    
+    """Force refresh of metadata cache"""
     try:
         # Refresh metadata cache
-        metadata_refreshed = await instrument_metadata_service.refresh_cache()
-        
-        # Refresh boundaries cache
-        _cache_timestamp = None
-        _data_boundaries_cache = {}
-        boundaries = await get_cached_data_boundaries()
+        success = await fast_metadata_service.refresh_cache()
+        cache_info = fast_metadata_service.get_cache_info()
         
         return {
-            "status": "success",
-            "message": "Caches refreshed successfully",
-            "metadataRefreshed": metadata_refreshed,
-            "boundariesRefreshed": bool(boundaries),
-            "symbolCount": len(boundaries),
+            "status": "success" if success else "failed",
+            "message": "Metadata cache refreshed",
+            "cacheInfo": cache_info,
             "timestamp": datetime.utcnow().isoformat()
         }
         
     except Exception as e:
-        logger.error(f"Failed to refresh caches: {e}")
+        logger.error(f"Failed to refresh cache: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to refresh caches"
+            detail="Failed to refresh cache"
         )
 
 @router.post("/instruments/metadata")
@@ -241,13 +138,14 @@ async def upload_instruments_metadata(
 ):
     """Upload new instrument metadata to MinIO (admin function)"""
     try:
-        success = await instrument_metadata_service.upload_metadata(metadata)
+        success = await fast_metadata_service.upload_metadata(metadata)
         
         if success:
+            instrument_count = len([k for k in metadata.keys() if not k.startswith("_")])
             return {
                 "status": "success",
-                "message": f"Metadata uploaded for {len(metadata)} instruments",
-                "instrumentCount": len(metadata),
+                "message": f"Metadata uploaded for {instrument_count} instruments",
+                "instrumentCount": instrument_count,
                 "timestamp": datetime.utcnow().isoformat()
             }
         else:
@@ -265,7 +163,7 @@ async def upload_instruments_metadata(
 
 @router.get("/symbols", response_model=List[str])
 async def get_available_symbols(
-    source_resolution: str = Query(default="1m", description="Source data resolution (1m or 1Y)"),
+    source_resolution: str = Query(default="1Y", description="Source data resolution (1m or 1Y)"),
     user_id: str = Depends(verify_token)
 ):
     """Get list of available symbols from source data"""
@@ -288,7 +186,7 @@ async def get_available_symbols(
 @router.get("/dates/{symbol}", response_model=List[str])
 async def get_available_dates(
     symbol: str,
-    source_resolution: str = Query(default="1m", description="Source data resolution (1m or 1Y)"),
+    source_resolution: str = Query(default="1Y", description="Source data resolution (1m or 1Y)"),
     user_id: str = Depends(verify_token)
 ):
     """Get list of available dates/years for a symbol from source data"""
@@ -311,7 +209,7 @@ async def get_available_dates(
 @router.post("/data", response_model=OHLCVResponse)
 async def get_ohlcv_data(
     request: OHLCVRequest,
-    source_resolution: str = Query(default="1m", description="Source data resolution (1m or 1Y)"),
+    source_resolution: str = Query(default="1Y", description="Source data resolution (1m or 1Y)"),
     user_id: str = Depends(verify_token)
 ):
     """
@@ -387,7 +285,7 @@ async def get_ohlcv_data_simple(
     start_date: date = Query(..., description="Start date (YYYY-MM-DD)"),
     end_date: date = Query(..., description="End date (YYYY-MM-DD)"),
     timeframe: str = Query(default="1d", pattern="^(1m|5m|15m|30m|1h|4h|1d|1w)$"),
-    source_resolution: str = Query(default="1m", description="Source data resolution (1m or 1Y)"),
+    source_resolution: str = Query(default="1Y", description="Source data resolution (1m or 1Y)"),
     response: Response = None,
     user_id: str = Depends(verify_token)
 ):
@@ -494,7 +392,7 @@ async def performance_test(
 
 @router.get("/storage-info")
 async def get_storage_info(
-    source_resolution: str = Query(default="1m", description="Source data resolution (1m or 1Y)"),
+    source_resolution: str = Query(default="1Y", description="Source data resolution (1m or 1Y)"),
     user_id: str = Depends(verify_token)
 ) -> Dict[str, Any]:
     """Get information about the storage structure for a given resolution"""
