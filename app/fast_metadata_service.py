@@ -16,22 +16,21 @@ class FastMetadataService:
     _cache_timestamp: Optional[float] = None
     _cache_duration = 300  # 5 minutes
     
-    @classmethod
-    async def get_all_metadata(cls) -> Dict[str, Dict[str, Any]]:
+    async def get_all_metadata(self) -> Dict[str, Dict[str, Any]]:
         """Get all instrument metadata with fast caching"""
         current_time = datetime.utcnow().timestamp()
         
-        # Check cache validity
-        if (cls._cache_timestamp and 
-            current_time - cls._cache_timestamp < cls._cache_duration and
-            cls._metadata_cache):
-            logger.info(f"Returning cached metadata with {len(cls._metadata_cache)} instruments")
-            return cls._metadata_cache
+        # Check cache validity (using class variables for shared cache)
+        if (self.__class__._cache_timestamp and 
+            current_time - self.__class__._cache_timestamp < self.__class__._cache_duration and
+            self.__class__._metadata_cache):
+            logger.info(f"Returning cached metadata with {len(self.__class__._metadata_cache)} instruments")
+            return self.__class__._metadata_cache
         
         # Refresh cache - COPY EXACT PATTERN FROM OLD SERVICE
         if not minio_service.is_available():
             logger.error("MinIO service not available")
-            return cls._metadata_cache if cls._metadata_cache else {}
+            return self.__class__._metadata_cache if self.__class__._metadata_cache else {}
         
         try:
             # Check if metadata file exists
@@ -48,9 +47,9 @@ class FastMetadataService:
                 metadata = json.loads(content)
                 logger.info(f"Loaded instrument metadata for {len(metadata)} instruments from MinIO")
             
-            # Update cache
-            cls._metadata_cache = metadata
-            cls._cache_timestamp = current_time
+            # Update cache (class variables for shared cache)
+            self.__class__._metadata_cache = metadata
+            self.__class__._cache_timestamp = current_time
             return metadata
             
         except S3Error as e:
@@ -58,18 +57,17 @@ class FastMetadataService:
                 logger.warning("Metadata file metadata/instruments.json not found in MinIO")
                 return {}
             logger.error(f"Failed to fetch metadata from MinIO: {e}")
-            return cls._metadata_cache if cls._metadata_cache else {}
+            return self.__class__._metadata_cache if self.__class__._metadata_cache else {}
         except json.JSONDecodeError as e:
             logger.error(f"Invalid JSON in metadata file: {e}")
-            return cls._metadata_cache if cls._metadata_cache else {}
+            return self.__class__._metadata_cache if self.__class__._metadata_cache else {}
         except Exception as e:
             logger.error(f"Unexpected error fetching metadata: {e}")
-            return cls._metadata_cache if cls._metadata_cache else {}
+            return self.__class__._metadata_cache if self.__class__._metadata_cache else {}
     
-    @classmethod
-    async def get_instruments_with_data(cls, source_resolution: str = "1Y") -> List[str]:
+    async def get_instruments_with_data(self, source_resolution: str = "1Y") -> List[str]:
         """Get list of instrument symbols that have data - compatible with old service API"""
-        metadata = await cls.get_all_metadata()
+        metadata = await self.get_all_metadata()
         
         symbols = []
         for symbol, data in metadata.items():
@@ -80,10 +78,9 @@ class FastMetadataService:
         logger.info(f"Returning {len(symbols)} instrument symbols")
         return symbols
 
-    @classmethod
-    async def get_metadata(cls, symbol: str) -> Dict[str, Any]:
+    async def get_metadata(self, symbol: str) -> Dict[str, Any]:
         """Get metadata for a specific instrument symbol - compatible with old service API"""
-        all_metadata = await cls.get_all_metadata()
+        all_metadata = await self.get_all_metadata()
         
         if symbol in all_metadata:
             return all_metadata[symbol]
@@ -113,16 +110,14 @@ class FastMetadataService:
             "last_updated": datetime.fromtimestamp(cls._cache_timestamp).isoformat() if cls._cache_timestamp else None
         }
     
-    @classmethod
-    async def refresh_cache(cls) -> Dict[str, Any]:
+    async def refresh_cache(self) -> Dict[str, Any]:
         """Force refresh cache"""
-        cls._cache_timestamp = None
-        cls._metadata_cache = {}
-        await cls.get_all_metadata()
+        self.__class__._cache_timestamp = None
+        self.__class__._metadata_cache = {}
+        await self.get_all_metadata()
         return {"success": True, "message": "Cache refreshed"}
     
-    @classmethod
-    async def upload_metadata(cls, metadata: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
+    async def upload_metadata(self, metadata: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
         """Upload metadata to MinIO"""
         if not minio_service.is_available():
             raise RuntimeError("MinIO service not available")
@@ -134,8 +129,8 @@ class FastMetadataService:
                 raise RuntimeError("Failed to upload to MinIO")
             
             # Clear cache to force refresh
-            cls._cache_timestamp = None
-            cls._metadata_cache = {}
+            self.__class__._cache_timestamp = None
+            self.__class__._metadata_cache = {}
             
             logger.info(f"Successfully uploaded metadata for {len(metadata)} instruments to MinIO")
             return {"success": True, "message": f"Uploaded metadata for {len(metadata)} instruments"}
