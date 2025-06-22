@@ -6,7 +6,7 @@ import json
 import logging
 from typing import Dict, Any, Optional, List
 from datetime import datetime
-from ..minio_client import minio_service
+from .minio_client import minio_service
 
 logger = logging.getLogger(__name__)
 
