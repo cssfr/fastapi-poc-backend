@@ -67,7 +67,47 @@ class FastMetadataService:
             return cls._metadata_cache if cls._metadata_cache else {}
     
     @classmethod
-    def get_cache_info(cls) -> Dict[str, Any]:
+    async def get_instruments_with_data(cls, source_resolution: str = "1Y") -> List[Dict[str, Any]]:
+        """Get instruments with data - compatible with old service API"""
+        metadata = await cls.get_all_metadata()
+        
+        instruments = []
+        for symbol, data in metadata.items():
+            if symbol.startswith("_"):  # Skip metadata fields like _schema_version
+                continue
+                
+            # Add the symbol to the data
+            instrument_data = data.copy()
+            instrument_data["symbol"] = symbol
+            instruments.append(instrument_data)
+        
+        logger.info(f"Returning {len(instruments)} instruments with data")
+        return instruments
+
+    @classmethod
+    async def get_metadata(cls, symbol: str) -> Dict[str, Any]:
+        """Get metadata for a specific instrument symbol - compatible with old service API"""
+        all_metadata = await cls.get_all_metadata()
+        
+        if symbol in all_metadata:
+            return all_metadata[symbol]
+        
+        # Return default metadata with symbol-specific values
+        default = {
+            "exchange": "UNKNOWN",
+            "market": "UNKNOWN", 
+            "name": symbol,
+            "shortName": symbol,
+            "ticker": symbol,
+            "type": "UNKNOWN",
+            "currency": "USD",
+            "description": f"Trading instrument: {symbol}",
+            "sector": "UNKNOWN",
+            "country": "UNKNOWN"
+        }
+        
+        logger.info(f"No metadata found for {symbol}, using defaults")
+        return default
         """Get cache information"""
         return {
             "cached": bool(cls._metadata_cache),
