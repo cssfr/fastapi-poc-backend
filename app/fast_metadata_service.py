@@ -6,7 +6,6 @@ import json
 import logging
 from typing import Dict, Any, Optional, List
 from datetime import datetime
-from .minio_client import minio_service
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +32,9 @@ class FastInstrumentMetadataService:
             return self._cache
         
         try:
+            # Import here to avoid circular imports
+            from .minio_client import minio_service
+            
             logger.info("Loading metadata from MinIO...")
             metadata = await minio_service.get_json_object("metadata/instruments.json")
             
@@ -124,6 +126,9 @@ class FastInstrumentMetadataService:
     async def upload_metadata(self, metadata: Dict[str, Any]) -> bool:
         """Upload metadata to MinIO"""
         try:
+            # Import here to avoid circular imports
+            from .minio_client import minio_service
+            
             # Add timestamp
             metadata["_updated"] = datetime.utcnow().isoformat() + "Z"
             
