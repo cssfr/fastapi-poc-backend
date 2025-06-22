@@ -36,7 +36,34 @@ class FastInstrumentMetadataService:
             from .minio_client import minio_service
             
             logger.info("Loading metadata from MinIO...")
-            metadata = await minio_service.get_json_object("metadata/instruments.json")
+            # Try different method names based on common MinIO service patterns
+            metadata = None
+            
+            # Option 1: Try get_object_as_json (common pattern)
+            if hasattr(minio_service, 'get_object_as_json'):
+                metadata = await minio_service.get_object_as_json("metadata/instruments.json")
+            # Option 2: Try get_json (another common pattern)
+            elif hasattr(minio_service, 'get_json'):
+                metadata = await minio_service.get_json("metadata/instruments.json")
+            # Option 3: Try download_json (another pattern)
+            elif hasattr(minio_service, 'download_json'):
+                metadata = await minio_service.download_json("metadata/instruments.json")
+            # Option 4: Try generic get_object and parse JSON
+            elif hasattr(minio_service, 'get_object'):
+                content = await minio_service.get_object("metadata/instruments.json")
+                if content:
+                    import json
+                    metadata = json.loads(content)
+            # Option 5: Try download_object
+            elif hasattr(minio_service, 'download_object'):
+                content = await minio_service.download_object("metadata/instruments.json")
+                if content:
+                    import json
+                    metadata = json.loads(content)
+            else:
+                logger.error("No suitable method found on MinIO service")
+                logger.info(f"Available methods: {[method for method in dir(minio_service) if not method.startswith('_')]}")
+                metadata = {}
             
             if metadata:
                 self._cache = metadata
@@ -132,7 +159,25 @@ class FastInstrumentMetadataService:
             # Add timestamp
             metadata["_updated"] = datetime.utcnow().isoformat() + "Z"
             
-            success = await minio_service.upload_json_object("metadata/instruments.json", metadata)
+            # Try different upload method names
+            success = False
+            if hasattr(minio_service, 'upload_json_object'):
+                success = await minio_service.upload_json_object("metadata/instruments.json", metadata)
+            elif hasattr(minio_service, 'upload_json'):
+                success = await minio_service.upload_json("metadata/instruments.json", metadata)
+            elif hasattr(minio_service, 'put_json'):
+                success = await minio_service.put_json("metadata/instruments.json", metadata)
+            elif hasattr(minio_service, 'put_object'):
+                import json
+                content = json.dumps(metadata, indent=2)
+                success = await minio_service.put_object("metadata/instruments.json", content)
+            elif hasattr(minio_service, 'upload_object'):
+                import json
+                content = json.dumps(metadata, indent=2)
+                success = await minio_service.upload_object("metadata/instruments.json", content)
+            else:
+                logger.error("No suitable upload method found on MinIO service")
+                success = False
             
             if success:
                 # Clear cache to force reload
