@@ -67,22 +67,18 @@ class FastMetadataService:
             return cls._metadata_cache if cls._metadata_cache else {}
     
     @classmethod
-    async def get_instruments_with_data(cls, source_resolution: str = "1Y") -> List[Dict[str, Any]]:
-        """Get instruments with data - compatible with old service API"""
+    async def get_instruments_with_data(cls, source_resolution: str = "1Y") -> List[str]:
+        """Get list of instrument symbols that have data - compatible with old service API"""
         metadata = await cls.get_all_metadata()
         
-        instruments = []
+        symbols = []
         for symbol, data in metadata.items():
             if symbol.startswith("_"):  # Skip metadata fields like _schema_version
                 continue
-                
-            # Add the symbol to the data
-            instrument_data = data.copy()
-            instrument_data["symbol"] = symbol
-            instruments.append(instrument_data)
+            symbols.append(symbol)  # Return just the symbol name, not the full data
         
-        logger.info(f"Returning {len(instruments)} instruments with data")
-        return instruments
+        logger.info(f"Returning {len(symbols)} instrument symbols")
+        return symbols
 
     @classmethod
     async def get_metadata(cls, symbol: str) -> Dict[str, Any]:
