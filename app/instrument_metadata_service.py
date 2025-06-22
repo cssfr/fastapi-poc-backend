@@ -33,27 +33,27 @@ class FastInstrumentMetadataService:
         
         try:
             # Import here to avoid circular imports
-            from .minio_client import minio_service
+            from .minio_client import minio_service, MINIO_BUCKET
             
             logger.info("Loading metadata from MinIO...")
             
-            # Use the actual available method: get_object_stream
-            try:
-                stream = await minio_service.get_object_stream("metadata/instruments.json")
-                if stream:
-                    import json
-                    # Read the stream content
-                    content = stream.read()
-                    if isinstance(content, bytes):
-                        content = content.decode('utf-8')
-                    metadata = json.loads(content)
-                    logger.info(f"Successfully loaded metadata with {len(metadata)} keys")
-                else:
-                    logger.warning("No stream returned from MinIO")
-                    metadata = {}
-            except Exception as stream_error:
-                logger.error(f"Failed to read from stream: {stream_error}")
+            # Check if MinIO service is available
+            if not minio_service.is_available():
+                raise RuntimeError("MinIO service not available")
+            
+            # Check if metadata file exists 
+            exists = await minio_service.check_object_exists("metadata/instruments.json", MINIO_BUCKET)
+            if not exists:
+                logger.warning("Metadata file not found in MinIO. Using empty metadata.")
                 metadata = {}
+            else:
+                # Get the metadata file (EXACTLY like old service - synchronous!)
+                response = minio_service.get_object_stream("metadata/instruments.json", MINIO_BUCKET)
+                content = response.read().decode('utf-8')
+                response.close()
+                
+                metadata = json.loads(content)
+                logger.info(f"Successfully loaded metadata with {len(metadata)} instruments from MinIO")
             
             if metadata:
                 self._cache = metadata
@@ -144,12 +144,16 @@ class FastInstrumentMetadataService:
         """Upload metadata to MinIO"""
         try:
             # Import here to avoid circular imports
-            from .minio_client import minio_service
+            from .minio_client import minio_service, MINIO_BUCKET
+            
+            # Check if MinIO service is available
+            if not minio_service.is_available():
+                raise RuntimeError("MinIO service not available")
             
             # Add timestamp
             metadata["_updated"] = datetime.utcnow().isoformat() + "Z"
             
-            # Use the actual available method: upload_json_object
+            # Use the upload method (matching old service pattern)
             success = await minio_service.upload_json_object("metadata/instruments.json", metadata)
             
             if success:
