@@ -5,6 +5,8 @@ from minio.error import S3Error
 import logging
 from typing import List, Optional
 from datetime import datetime
+import json
+from io import BytesIO
 
 logger = logging.getLogger(__name__)
 
@@ -212,6 +214,36 @@ class MinIOService:
         except Exception as e:
             logger.error(f"Failed to compare storage structures: {e}")
             raise
+
+    @staticmethod
+    async def upload_json_object(object_name: str, data: dict, bucket_name: str = MINIO_BUCKET) -> bool:
+        """Upload JSON data as an object to MinIO"""
+        if not minio_client:
+            raise RuntimeError("MinIO client not configured")
+        
+        try:
+            # Convert to JSON bytes
+            json_content = json.dumps(data, indent=2)
+            json_bytes = json_content.encode('utf-8')
+            
+            # Upload to MinIO
+            minio_client.put_object(
+                bucket_name,
+                object_name,
+                BytesIO(json_bytes),
+                length=len(json_bytes),
+                content_type='application/json'
+            )
+            
+            logger.info(f"Successfully uploaded JSON object: {object_name}")
+            return True
+            
+        except S3Error as e:
+            logger.error(f"Failed to upload JSON object: {e}")
+            return False
+        except Exception as e:
+            logger.error(f"Unexpected error uploading JSON object: {e}")
+            return False
 
 # Export service instance
 minio_service = MinIOService()
