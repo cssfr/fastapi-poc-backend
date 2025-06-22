@@ -101,13 +101,15 @@ class FastMetadataService:
         
         logger.info(f"No metadata found for {symbol}, using defaults")
         return default
+    
+    def get_cache_info(self) -> Dict[str, Any]:
         """Get cache information"""
         return {
-            "cached": bool(cls._metadata_cache),
-            "cache_age": int(datetime.utcnow().timestamp() - cls._cache_timestamp) if cls._cache_timestamp else None,
-            "cache_duration": cls._cache_duration,
-            "instrument_count": len(cls._metadata_cache),
-            "last_updated": datetime.fromtimestamp(cls._cache_timestamp).isoformat() if cls._cache_timestamp else None
+            "cached": bool(self.__class__._metadata_cache),
+            "cache_age": int(datetime.utcnow().timestamp() - self.__class__._cache_timestamp) if self.__class__._cache_timestamp else None,
+            "cache_duration": self.__class__._cache_duration,
+            "instrument_count": len(self.__class__._metadata_cache),
+            "last_updated": datetime.fromtimestamp(self.__class__._cache_timestamp).isoformat() if self.__class__._cache_timestamp else None
         }
     
     async def refresh_cache(self) -> Dict[str, Any]:
