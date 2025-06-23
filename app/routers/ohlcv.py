@@ -3,9 +3,10 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query, Response
 from typing import List, Optional, Dict, Any
 from datetime import date, datetime, timedelta
 from ..auth import verify_token
-from ..models_ohlcv import OHLCVRequest, OHLCVResponse, OHLCVData
+from ..models_ohlcv import OHLCVRequest, OHLCVResponse, OHLCVData, InstrumentMetadata, InstrumentsResponse, DataRange
 from ..duckdb_service import duckdb_service
 from ..minio_client import minio_service
+from ..fast_metadata_service import fast_metadata_service
 import logging
 
 logger = logging.getLogger(__name__)
@@ -15,9 +16,154 @@ router = APIRouter(
     tags=["ohlcv"]
 )
 
+@router.get("/instruments", response_model=InstrumentsResponse)
+async def get_instruments_metadata(
+    source_resolution: str = Query(default="1Y", description="Source resolution to filter by (1Y, 1m, or both)"),
+    user_id: str = Depends(verify_token)
+) -> InstrumentsResponse:
+    """
+    Get comprehensive metadata for all available instruments from external sources.
+    
+    ⚡ FAST: Reads data boundaries directly from metadata/instruments.json
+    🎯 ACCURATE: Boundaries updated daily via cron job
+    """
+    try:
+        # Validate source resolution
+        if source_resolution not in ["1Y", "1m", "both"]:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="source_resolution must be '1Y', '1m', or 'both'"
+            )
+        
+        # Get all metadata (includes boundaries)
+        all_metadata = await fast_metadata_service.get_all_metadata()
+        
+        if not all_metadata:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Metadata service unavailable"
+            )
+        
+        # Get instruments that have data available
+        if source_resolution == "both":
+            available_symbols = await fast_metadata_service.get_instruments_with_data("both")
+            available_sources = ["1Y", "1m"]
+        else:
+            available_symbols = await fast_metadata_service.get_instruments_with_data(source_resolution)
+            available_sources = [source_resolution]
+        
+        # Build instrument metadata
+        instruments = []
+        
+        for symbol in available_symbols:
+            # Get metadata from fast service
+            metadata = await fast_metadata_service.get_metadata(symbol)
+            
+            # Extract data range (already included in metadata)
+            data_range = metadata.get("dataRange")
+            data_range_obj = None
+            
+            if data_range:
+                data_range_obj = DataRange(
+                    earliest=data_range.get("earliest"),
+                    latest=data_range.get("latest"),
+                    sources=data_range.get("sources", {})
+                )
+            
+            # Build instrument object
+            instrument = InstrumentMetadata(
+                symbol=symbol,
+                exchange=metadata["exchange"],
+                market=metadata["market"],
+                name=metadata["name"],
+                shortName=metadata["shortName"],
+                ticker=metadata["ticker"],
+                type=metadata["type"],
+                currency=metadata["currency"],
+                description=metadata["description"],
+                sector=metadata["sector"],
+                country=metadata["country"],
+                dataRange=data_range_obj,
+                availableTimeframes=["1m", "5m", "15m", "30m", "1h", "4h", "1d", "1w"],
+                sourceResolutions=available_sources
+            )
+            
+            instruments.append(instrument)
+        
+        # Get cache information
+        cache_info = fast_metadata_service.get_cache_info()
+        
+        return InstrumentsResponse(
+            count=len(instruments),
+            instruments=instruments,
+            lastUpdated=datetime.utcnow().isoformat(),
+            cacheInfo=cache_info
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get instruments metadata: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve instruments metadata"
+        )
+
+@router.post("/instruments/refresh-cache")
+async def refresh_instruments_cache(user_id: str = Depends(verify_token)):
+    """Force refresh of metadata cache"""
+    try:
+        # Refresh metadata cache
+        success = await fast_metadata_service.refresh_cache()
+        cache_info = fast_metadata_service.get_cache_info()
+        
+        return {
+            "status": "success" if success else "failed",
+            "message": "Metadata cache refreshed",
+            "cacheInfo": cache_info,
+            "timestamp": datetime.utcnow().isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to refresh cache: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to refresh cache"
+        )
+
+@router.post("/instruments/metadata")
+async def upload_instruments_metadata(
+    metadata: Dict[str, Dict[str, Any]],
+    user_id: str = Depends(verify_token)
+):
+    """Upload new instrument metadata to MinIO (admin function)"""
+    try:
+        success = await fast_metadata_service.upload_metadata(metadata)
+        
+        if success:
+            instrument_count = len([k for k in metadata.keys() if not k.startswith("_")])
+            return {
+                "status": "success",
+                "message": f"Metadata uploaded for {instrument_count} instruments",
+                "instrumentCount": instrument_count,
+                "timestamp": datetime.utcnow().isoformat()
+            }
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to upload metadata"
+            )
+            
+    except Exception as e:
+        logger.error(f"Failed to upload metadata: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to upload metadata"
+        )
+
 @router.get("/symbols", response_model=List[str])
 async def get_available_symbols(
-    source_resolution: str = Query(default="1m", description="Source data resolution (1m or 1Y)"),
+    source_resolution: str = Query(default="1Y", description="Source data resolution (1m or 1Y)"),
     user_id: str = Depends(verify_token)
 ):
     """Get list of available symbols from source data"""
@@ -40,7 +186,7 @@ async def get_available_symbols(
 @router.get("/dates/{symbol}", response_model=List[str])
 async def get_available_dates(
     symbol: str,
-    source_resolution: str = Query(default="1m", description="Source data resolution (1m or 1Y)"),
+    source_resolution: str = Query(default="1Y", description="Source data resolution (1m or 1Y)"),
     user_id: str = Depends(verify_token)
 ):
     """Get list of available dates/years for a symbol from source data"""
@@ -63,7 +209,7 @@ async def get_available_dates(
 @router.post("/data", response_model=OHLCVResponse)
 async def get_ohlcv_data(
     request: OHLCVRequest,
-    source_resolution: str = Query(default="1m", description="Source data resolution (1m or 1Y)"),
+    source_resolution: str = Query(default="1Y", description="Source data resolution (1m or 1Y)"),
     user_id: str = Depends(verify_token)
 ):
     """
@@ -139,7 +285,7 @@ async def get_ohlcv_data_simple(
     start_date: date = Query(..., description="Start date (YYYY-MM-DD)"),
     end_date: date = Query(..., description="End date (YYYY-MM-DD)"),
     timeframe: str = Query(default="1d", pattern="^(1m|5m|15m|30m|1h|4h|1d|1w)$"),
-    source_resolution: str = Query(default="1m", description="Source data resolution (1m or 1Y)"),
+    source_resolution: str = Query(default="1Y", description="Source data resolution (1m or 1Y)"),
     response: Response = None,
     user_id: str = Depends(verify_token)
 ):
@@ -246,7 +392,7 @@ async def performance_test(
 
 @router.get("/storage-info")
 async def get_storage_info(
-    source_resolution: str = Query(default="1m", description="Source data resolution (1m or 1Y)"),
+    source_resolution: str = Query(default="1Y", description="Source data resolution (1m or 1Y)"),
     user_id: str = Depends(verify_token)
 ) -> Dict[str, Any]:
     """Get information about the storage structure for a given resolution"""

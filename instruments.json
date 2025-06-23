@@ -1,0 +1,214 @@
+{
+  "_schema_version": "1.1",
+  "_updated": "2025-06-22T04:30:00Z",
+  "_data_boundaries_updated": "2025-06-22T04:30:00Z", 
+  "_boundary_update_source": "1Y",
+  "_description": "Instrument metadata with accurate data boundaries",
+  
+  "ES": {
+    "exchange": "CME",
+    "market": "FUTURES",
+    "name": "E-mini S&P 500",
+    "shortName": "ES",
+    "ticker": "ES",
+    "type": "FUT",
+    "currency": "USD",
+    "description": "E-mini S&P 500 futures contract",
+    "sector": "INDEX",
+    "country": "US",
+    "dataRange": {
+      "earliest": "2010-01-04",
+      "latest": "2025-06-21",
+      "sources": {
+        "1Y": {
+          "earliest": "2010-01-04",
+          "latest": "2025-06-21"
+        }
+      }
+    }
+  },
+  
+  "NQ": {
+    "exchange": "CME", 
+    "market": "FUTURES",
+    "name": "E-mini NASDAQ-100",
+    "shortName": "NQ",
+    "ticker": "NQ",
+    "type": "FUT",
+    "currency": "USD",
+    "description": "E-mini NASDAQ-100 futures contract",
+    "sector": "INDEX",
+    "country": "US",
+    "dataRange": {
+      "earliest": "2011-09-20",
+      "latest": "2025-06-21",
+      "sources": {
+        "1Y": {
+          "earliest": "2011-09-20",
+          "latest": "2025-06-21"
+        }
+      }
+    }
+  },
+  
+  "DAX": {
+    "exchange": "EUREX",
+    "market": "FUTURES", 
+    "name": "DAX Index",
+    "shortName": "DAX",
+    "ticker": "DAX",
+    "type": "FUT",
+    "currency": "EUR",
+    "description": "German stock index futures",
+    "sector": "INDEX", 
+    "country": "DE",
+    "dataRange": {
+      "earliest": "2013-01-02",
+      "latest": "2025-06-21",
+      "sources": {
+        "1Y": {
+          "earliest": "2013-01-02",
+          "latest": "2025-06-21"
+        }
+      }
+    }
+  },
+  
+  "FTSE": {
+    "exchange": "ICE",
+    "market": "FUTURES",
+    "name": "FTSE 100 Index",
+    "shortName": "FTSE",
+    "ticker": "FTSE",
+    "type": "FUT", 
+    "currency": "GBP",
+    "description": "UK FTSE 100 index futures",
+    "sector": "INDEX",
+    "country": "GB",
+    "dataRange": {
+      "earliest": "2013-01-02",
+      "latest": "2025-06-21",
+      "sources": {
+        "1Y": {
+          "earliest": "2013-01-02",
+          "latest": "2025-06-21"
+        }
+      }
+    }
+  },
+  
+  "DJIA": {
+    "exchange": "CME",
+    "market": "FUTURES",
+    "name": "Dow Jones Industrial Average",
+    "shortName": "DJIA", 
+    "ticker": "DJIA",
+    "type": "FUT",
+    "currency": "USD",
+    "description": "Dow Jones Industrial Average futures",
+    "sector": "INDEX",
+    "country": "US",
+    "dataRange": {
+      "earliest": "2013-01-02",
+      "latest": "2025-06-21",
+      "sources": {
+        "1Y": {
+          "earliest": "2013-01-02",
+          "latest": "2025-06-21"
+        }
+      }
+    }
+  },
+  
+  "RUT": {
+    "exchange": "CME",
+    "market": "FUTURES", 
+    "name": "Russell 2000 Index",
+    "shortName": "RUT",
+    "ticker": "RUT",
+    "type": "FUT",
+    "currency": "USD", 
+    "description": "Russell 2000 small-cap index futures",
+    "sector": "INDEX",
+    "country": "US",
+    "dataRange": {
+      "earliest": "2013-01-02",
+      "latest": "2025-06-21",
+      "sources": {
+        "1Y": {
+          "earliest": "2013-01-02",
+          "latest": "2025-06-21"
+        }
+      }
+    }
+  },
+  
+  "GOLD": {
+    "exchange": "CME",
+    "market": "FUTURES",
+    "name": "Gold Futures", 
+    "shortName": "GOLD",
+    "ticker": "GC",
+    "type": "FUT",
+    "currency": "USD",
+    "description": "Gold futures contract",
+    "sector": "COMMODITIES",
+    "country": "US",
+    "dataRange": {
+      "earliest": "2011-01-03",
+      "latest": "2025-06-21",
+      "sources": {
+        "1Y": {
+          "earliest": "2011-01-03",
+          "latest": "2025-06-21"
+        }
+      }
+    }
+  },
+  
+  "BTC": {
+    "exchange": "CME",
+    "market": "FUTURES",
+    "name": "Bitcoin Futures",
+    "shortName": "BTC", 
+    "ticker": "BTC",
+    "type": "FUT",
+    "currency": "USD",
+    "description": "Bitcoin futures contract",
+    "sector": "CRYPTO",
+    "country": "US",
+    "dataRange": {
+      "earliest": "2017-12-18",
+      "latest": "2025-06-21",
+      "sources": {
+        "1Y": {
+          "earliest": "2017-12-18",
+          "latest": "2025-06-21"
+        }
+      }
+    }
+  },
+  
+  "VIX": {
+    "exchange": "CBOE",
+    "market": "FUTURES",
+    "name": "Volatility Index",
+    "shortName": "VIX",
+    "ticker": "VIX",
+    "type": "FUT", 
+    "currency": "USD",
+    "description": "CBOE Volatility Index futures",
+    "sector": "VOLATILITY",
+    "country": "US",
+    "dataRange": {
+      "earliest": "2011-01-03",
+      "latest": "2025-06-21",
+      "sources": {
+        "1Y": {
+          "earliest": "2011-01-03",
+          "latest": "2025-06-21"
+        }
+      }
+    }
+  }
+}
