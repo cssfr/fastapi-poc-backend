@@ -6,7 +6,7 @@ import logging
 from app.database import db
 from app.models import (
     BacktestCreate, BacktestResponse, BacktestUpdate,
-    BacktestStatus, BacktestMetrics
+    BacktestStatus
 )
 from app.repositories.backtest_repository import BacktestRepository
 from app.core.exceptions import BacktestNotFoundException, BacktestException
