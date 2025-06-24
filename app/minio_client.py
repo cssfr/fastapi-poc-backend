@@ -43,18 +43,7 @@ class MinIOService:
         """Check if MinIO is configured and available"""
         return minio_client is not None
     
-    @staticmethod
-    async def list_buckets() -> List[str]:
-        """List all available buckets"""
-        if not minio_client:
-            raise RuntimeError("MinIO client not configured")
-        
-        try:
-            buckets = minio_client.list_buckets()
-            return [bucket.name for bucket in buckets]
-        except S3Error as e:
-            logger.error(f"Failed to list buckets: {e}")
-            raise
+    # list_buckets() method moved to StorageRepository - use StorageService instead
     
     @staticmethod
     async def list_objects(bucket_name: str = MINIO_BUCKET, prefix: str = "") -> List[dict]:
@@ -76,38 +65,9 @@ class MinIOService:
             logger.error(f"Failed to list objects: {e}")
             raise
     
-    @staticmethod
-    async def get_object_url(object_name: str, bucket_name: str = MINIO_BUCKET) -> str:
-        """Get a presigned URL for an object (valid for 1 hour)"""
-        if not minio_client:
-            raise RuntimeError("MinIO client not configured")
-        
-        try:
-            # Generate presigned URL valid for 1 hour
-            url = minio_client.presigned_get_object(
-                bucket_name,
-                object_name,
-                expires=3600
-            )
-            return url
-        except S3Error as e:
-            logger.error(f"Failed to generate presigned URL: {e}")
-            raise
+    # get_object_url() method moved to StorageRepository - use StorageService instead
     
-    @staticmethod
-    async def check_object_exists(object_name: str, bucket_name: str = MINIO_BUCKET) -> bool:
-        """Check if an object exists in the bucket"""
-        if not minio_client:
-            raise RuntimeError("MinIO client not configured")
-        
-        try:
-            minio_client.stat_object(bucket_name, object_name)
-            return True
-        except S3Error as e:
-            if e.code == "NoSuchKey":
-                return False
-            logger.error(f"Failed to check object existence: {e}")
-            raise
+    # check_object_exists() method moved to StorageRepository - use StorageService instead
     
     @staticmethod
     def get_object_stream(object_name: str, bucket_name: str = MINIO_BUCKET):

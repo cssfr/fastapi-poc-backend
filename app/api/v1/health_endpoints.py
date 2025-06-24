@@ -6,7 +6,7 @@ import os
 from datetime import datetime
 
 from app.database import db
-from app.minio_client import minio_service
+from app.services.storage_service import StorageService
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
@@ -64,7 +64,8 @@ async def detailed_health_check(request: Request) -> Dict[str, Any]:
     
     # Check MinIO storage
     try:
-        bucket_status = await minio_service.get_bucket_status()
+        service = StorageService()
+        bucket_status = await service.get_bucket_status()
         health_status["dependencies"]["storage"] = {
             "status": "healthy",
             "message": "Connected",

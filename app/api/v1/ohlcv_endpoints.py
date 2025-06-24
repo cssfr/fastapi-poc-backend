@@ -6,8 +6,8 @@ import logging
 from app.auth import verify_token
 from app.models_ohlcv import OHLCVRequest, OHLCVResponse, OHLCVData
 from app.services.market_data_service import MarketDataService
+from app.services.storage_service import StorageService
 from app.infrastructure.cache import market_data_cache
-from app.minio_client import minio_service
 
 logger = logging.getLogger(__name__)
 
@@ -269,7 +269,8 @@ async def get_storage_status(request: Request):
             extra={"request_id": getattr(request.state, "request_id", "unknown")}
         )
         
-        status_info = await minio_service.get_bucket_status()
+        service = StorageService()
+        status_info = await service.get_bucket_status()
         
         return status_info
         

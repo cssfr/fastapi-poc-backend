@@ -1,10 +1,10 @@
 from fastapi import APIRouter, HTTPException, status, Request
 from typing import Dict, Any
 import logging
-import os
 
-from app.minio_client import minio_service
+from app.services.storage_service import StorageService
 from app.auth import verify_token
+from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -22,14 +22,12 @@ async def get_storage_status(request: Request) -> Dict[str, Any]:
             extra={"request_id": getattr(request.state, "request_id", "unknown")}
         )
         
-        status_info = await minio_service.get_bucket_status()
-        
-        # Add additional bucket info
-        configured_bucket = settings.minio_bucket
+        service = StorageService()
+        status_info = await service.get_bucket_status()
         
         response = {
             "status": "healthy",
-            "configured_bucket": configured_bucket,
+            "configured_bucket": status_info["configured_bucket"],
             "minio_status": status_info,
             "message": "Storage service is operational"
         }
@@ -37,7 +35,7 @@ async def get_storage_status(request: Request) -> Dict[str, Any]:
         logger.info(
             f"Storage status retrieved: {response}",
             extra={
-                "bucket": configured_bucket,
+                "bucket": status_info["configured_bucket"],
                 "request_id": getattr(request.state, "request_id", "unknown")
             }
         )
@@ -60,7 +58,8 @@ async def list_buckets(request: Request):
             extra={"request_id": getattr(request.state, "request_id", "unknown")}
         )
         
-        buckets = await minio_service.list_buckets()
+        service = StorageService()
+        buckets = await service.get_bucket_list()
         
         logger.info(
             f"Found {len(buckets)} buckets",
@@ -88,14 +87,10 @@ async def storage_health_check(request: Request):
             extra={"request_id": getattr(request.state, "request_id", "unknown")}
         )
         
-        # Test basic connectivity
-        await minio_service.get_bucket_status()
+        service = StorageService()
+        health_info = await service.check_storage_health()
         
-        return {
-            "status": "healthy",
-            "service": "minio",
-            "message": "Storage service is responding"
-        }
+        return health_info
         
     except Exception as e:
         logger.error(f"Storage health check failed: {e}")
