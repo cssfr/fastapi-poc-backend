@@ -7,6 +7,7 @@ from datetime import datetime
 
 from app.database import db
 from app.minio_client import minio_service
+from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -26,8 +27,8 @@ async def health_check(request: Request) -> Dict[str, Any]:
     return {
         "status": "healthy",
         "timestamp": datetime.utcnow().isoformat(),
-        "version": os.getenv("APP_VERSION", "1.0.0"),
-        "environment": os.getenv("COOLIFY_ENVIRONMENT", "production")
+        "version": settings.version,
+        "environment": settings.environment
     }
 
 @router.get("/detailed")
@@ -41,8 +42,8 @@ async def detailed_health_check(request: Request) -> Dict[str, Any]:
     health_status = {
         "status": "healthy",
         "timestamp": datetime.utcnow().isoformat(),
-        "version": os.getenv("APP_VERSION", "1.0.0"),
-        "environment": os.getenv("COOLIFY_ENVIRONMENT", "production"),
+        "version": settings.version,
+        "environment": settings.environment,
         "dependencies": {}
     }
     
@@ -90,13 +91,15 @@ async def readiness_check(request: Request) -> Dict[str, Any]:
     # Check critical dependencies
     checks = []
     
-    # Required environment variables
-    required_vars = ["DATABASE_URL", "SUPABASE_URL", "SUPABASE_JWT_SECRET"]
+    # Required environment variables - check settings instead of os.getenv
     missing_vars = []
     
-    for var in required_vars:
-        if not os.getenv(var):
-            missing_vars.append(var)
+    if not settings.database_url:
+        missing_vars.append("DATABASE_URL")
+    if not settings.supabase_url:
+        missing_vars.append("SUPABASE_URL")
+    if not settings.supabase_jwt_secret:
+        missing_vars.append("SUPABASE_JWT_SECRET")
     
     if missing_vars:
         logger.error(f"Missing required environment variables: {missing_vars}")

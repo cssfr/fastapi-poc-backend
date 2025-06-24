@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 class TradeService:
     def __init__(self, repository: TradeRepository = None, backtest_service: BacktestService = None):
-        self.repository = repository or TradeRepository()
+        self.repository = repository or TradeRepository(db)
         self.backtest_service = backtest_service or BacktestService()
     async def create_trade(self, user_id: str, data: TradeCreate) -> TradeResponse:
         """Create a new trade with transaction support"""

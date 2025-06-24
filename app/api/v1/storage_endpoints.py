@@ -25,7 +25,7 @@ async def get_storage_status(request: Request) -> Dict[str, Any]:
         status_info = await minio_service.get_bucket_status()
         
         # Add additional bucket info
-        configured_bucket = os.getenv("MINIO_BUCKET", "dukascopy-node")
+        configured_bucket = settings.minio_bucket
         
         response = {
             "status": "healthy",

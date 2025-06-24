@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 class StrategyService:
     def __init__(self, repository: StrategyRepository = None):
-        self.repository = repository or StrategyRepository()
+        self.repository = repository or StrategyRepository(db)
     async def create_strategy(self, user_id: str, data: StrategyCreate) -> StrategyResponse:
         """Create a new strategy"""
         row = await self.repository.create(

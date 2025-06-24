@@ -20,7 +20,7 @@ class Database:
     async def connect(self):
         """Connect to the database"""
         try:
-            self.pool = await asyncpg.create_pool(
+            self._pool = await asyncpg.create_pool(
                 DATABASE_URL,
                 min_size=settings.db_pool_min,
                 max_size=settings.db_pool_max,

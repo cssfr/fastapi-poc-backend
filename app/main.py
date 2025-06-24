@@ -2,11 +2,11 @@ from fastapi import FastAPI, Depends, HTTPException, status, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from contextlib import asynccontextmanager
-from .auth import verify_token
-from .database import db
-from .models import Item
-from .middleware import LoggingMiddleware, ErrorHandlingMiddleware
-from .logging_config import setup_logging
+from app.auth import verify_token
+from app.database import db
+from app.models import Item
+from app.middleware import LoggingMiddleware
+from app.logging_config import setup_logging
 from app.api.v1.router import api_router
 from app.api.exception_handlers import register_exception_handlers
 from typing import List
@@ -57,7 +57,6 @@ app = FastAPI(
 )
 
 # Add middleware
-app.add_middleware(ErrorHandlingMiddleware)
 app.add_middleware(LoggingMiddleware)
 
 # CORS configuration
@@ -95,7 +94,7 @@ async def root():
         "message": "FastAPI Backtesting API",
         "version": "1.0.0",
         "docs": "/docs",
-        "health": "/health"
+        "health": "/api/v1/health/"
     }
 
 # Legacy endpoint for backward compatibility

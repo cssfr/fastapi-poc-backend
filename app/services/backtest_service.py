@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 class BacktestService:
     def __init__(self, repository: BacktestRepository = None):
-        self.repository = repository or BacktestRepository()
+        self.repository = repository or BacktestRepository(db)
     async def create_backtest(self, user_id: str, data: BacktestCreate) -> BacktestResponse:
         """Create a new backtest with transaction support"""
         try:

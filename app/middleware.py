@@ -60,7 +60,7 @@ class LoggingMiddleware(BaseHTTPMiddleware):
             # Calculate duration
             duration = time.time() - start_time
             
-            # Log error
+            # Log error but let exception handlers deal with the response
             logger.error(
                 f"Request failed",
                 extra={
@@ -72,44 +72,6 @@ class LoggingMiddleware(BaseHTTPMiddleware):
                 exc_info=True
             )
             
-            # Return error response
-            return JSONResponse(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                content={
-                    "detail": "Internal server error",
-                    "request_id": request_id,
-                    "type": "internal_error"
-                }
-            )
+            # Re-raise the exception to let exception handlers handle it
+            raise
 
-class ErrorHandlingMiddleware(BaseHTTPMiddleware):
-    """Middleware for consistent error handling"""
-    
-    async def dispatch(self, request: Request, call_next: Callable):
-        try:
-            response = await call_next(request)
-            return response
-        except Exception as e:
-            # Get request ID if available
-            request_id = getattr(request.state, "request_id", "unknown")
-            
-            # Log the error
-            logger.error(
-                f"Unhandled exception",
-                extra={
-                    "request_id": request_id,
-                    "error": str(e),
-                    "error_type": type(e).__name__,
-                },
-                exc_info=True
-            )
-            
-            # Return generic error response
-            return JSONResponse(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                content={
-                    "detail": "An unexpected error occurred",
-                    "request_id": request_id,
-                    "type": "internal_error"
-                }
-            )

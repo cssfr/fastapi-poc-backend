@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 
 class UserService:
     def __init__(self, repository: UserRepository = None):
-        self.repository = repository or UserRepository()
+        self.repository = repository or UserRepository(db)
     async def get_or_create_user(self, user_id: str, email: str) -> UserResponse:
         """Get or create a user with transaction support"""
         async with db.transaction() as conn:
