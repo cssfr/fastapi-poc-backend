@@ -1,7 +1,7 @@
 """Market data service for business logic for OHLCV data"""
 import logging
 from typing import List, Dict, Any
-from datetime import datetime, date, timedelta
+from datetime import datetime, date, timedelta, timezone
 from app.infrastructure.duckdb_adapter import duckdb_adapter
 from app.infrastructure.cache import market_data_cache
 from app.infrastructure.performance_monitor import performance_monitor
@@ -112,9 +112,9 @@ class MarketDataService:
         if not s3_paths:
             raise ValueError(f"No data paths generated for symbol {symbol} between {start_date} and {end_date}")
         
-        # Convert dates to unix timestamps for filtering
-        start_unix = int(datetime.combine(start_date, datetime.min.time()).timestamp())
-        end_unix = int(datetime.combine(end_date, datetime.max.time()).timestamp())
+        # Convert dates to unix timestamps for filtering (UTC)
+        start_unix = int(datetime.combine(start_date, datetime.min.time()).replace(tzinfo=timezone.utc).timestamp())
+        end_unix = int(datetime.combine(end_date, datetime.max.time()).replace(tzinfo=timezone.utc).timestamp())
         
         # Check cache first
         cached_data = await market_data_cache.get_market_data(symbol, timeframe, start_unix, end_unix)
@@ -143,8 +143,8 @@ class MarketDataService:
                 if isinstance(row.get('timestamp'), datetime):
                     row['timestamp'] = row['timestamp'].isoformat()
                 elif 'unix_time' in row:
-                    # Convert unix timestamp back to ISO format
-                    row['timestamp'] = datetime.fromtimestamp(row['unix_time']).isoformat()
+                    # Convert unix timestamp back to ISO format (UTC)
+                    row['timestamp'] = datetime.fromtimestamp(row['unix_time'], tz=timezone.utc).isoformat()
             
             # Cache the results
             await market_data_cache.set_market_data(symbol, timeframe, start_unix, end_unix, data)
