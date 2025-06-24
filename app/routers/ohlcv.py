@@ -4,12 +4,15 @@ from typing import List, Optional, Dict, Any
 from datetime import date, datetime, timedelta
 from ..auth import verify_token
 from ..models_ohlcv import OHLCVRequest, OHLCVResponse, OHLCVData, InstrumentMetadata, InstrumentsResponse, DataRange
-from ..duckdb_service import duckdb_service
+from app.services.market_data_service import MarketDataService
 from ..minio_client import minio_service
 from ..fast_metadata_service import fast_metadata_service
 import logging
 
 logger = logging.getLogger(__name__)
+
+# Create market data service instance
+market_data_service = MarketDataService()
 
 router = APIRouter(
     prefix="/api/ohlcv",
@@ -174,7 +177,7 @@ async def get_available_symbols(
                 detail="source_resolution must be either '1m' or '1Y'"
             )
         
-        symbols = await duckdb_service.get_available_symbols(source_resolution)
+        symbols = await market_data_service.get_available_symbols(source_resolution)
         return symbols
     except Exception as e:
         logger.error(f"Failed to get symbols: {e}")
@@ -197,7 +200,7 @@ async def get_available_dates(
                 detail="source_resolution must be either '1m' or '1Y'"
             )
         
-        dates = await duckdb_service.get_available_dates(symbol.upper(), source_resolution)
+        dates = await market_data_service.get_available_dates(symbol.upper(), source_resolution)
         return dates
     except Exception as e:
         logger.error(f"Failed to get dates for {symbol}: {e}")
@@ -233,7 +236,7 @@ async def get_ohlcv_data(
             )
         
         # Get data with proper aggregation
-        data = await duckdb_service.get_ohlcv_data(
+        data = await market_data_service.get_ohlcv_data(
             symbol=request.symbol,
             start_date=request.start_date,
             end_date=request.end_date,
@@ -364,7 +367,7 @@ async def performance_test(
     try:
         logger.info(f"Running performance test for {symbol} from {start_date} to {end_date} ({timeframe})")
         
-        results = await duckdb_service.performance_test(
+        results = await market_data_service.performance_test(
             symbol=symbol.upper(),
             start_date=start_date,
             end_date=end_date,

@@ -9,6 +9,7 @@ from app.models import (
     BacktestStatus, BacktestMetrics
 )
 from app.repositories.backtest_repository import BacktestRepository
+from app.core.exceptions import BacktestNotFoundException, BacktestException
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +46,7 @@ class BacktestService:
                 
                 if row:
                     return BacktestResponse(**row)
-                raise Exception("Failed to create backtest")
+                raise BacktestException("Failed to create backtest")
                 
         except Exception as e:
             logger.error(f"Error creating backtest: {e}")
@@ -56,12 +57,14 @@ class BacktestService:
         rows = await self.repository.get_by_user(uuid.UUID(user_id))
         return [BacktestResponse(**row) for row in rows]
     
-    async def get_backtest_by_id(self, user_id: str, backtest_id: str) -> Optional[BacktestResponse]:
+    async def get_backtest_by_id(self, user_id: str, backtest_id: str) -> BacktestResponse:
         """Get a specific backtest by ID"""
         row = await self.repository.get_by_id(uuid.UUID(backtest_id), uuid.UUID(user_id))
-        return BacktestResponse(**row) if row else None
+        if not row:
+            raise BacktestNotFoundException(backtest_id=backtest_id, user_id=user_id)
+        return BacktestResponse(**row)
     
-    async def update_backtest(self, user_id: str, backtest_id: str, data: BacktestUpdate) -> Optional[BacktestResponse]:
+    async def update_backtest(self, user_id: str, backtest_id: str, data: BacktestUpdate) -> BacktestResponse:
         """Update a backtest with transaction support"""
         # Build dynamic update query (business logic)
         update_fields = []
@@ -88,9 +91,14 @@ class BacktestService:
         
         async with db.transaction() as conn:
             row = await self.repository.update(conn, uuid.UUID(backtest_id), uuid.UUID(user_id), update_fields, values)
-            return BacktestResponse(**row) if row else None
+            if not row:
+                raise BacktestNotFoundException(backtest_id=backtest_id, user_id=user_id)
+            return BacktestResponse(**row)
     
     async def delete_backtest(self, user_id: str, backtest_id: str) -> bool:
         """Delete a backtest (trades are cascade deleted)"""
         result = await self.repository.delete(uuid.UUID(backtest_id), uuid.UUID(user_id))
-        return result == "DELETE 1" 
+        success = result == "DELETE 1"
+        if not success:
+            raise BacktestNotFoundException(backtest_id=backtest_id, user_id=user_id)
+        return True 

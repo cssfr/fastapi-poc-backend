@@ -3,6 +3,7 @@ import logging
 from app.database import db
 from app.models import UserResponse
 from app.repositories.user_repository import UserRepository
+from app.core.exceptions import DatabaseError
 
 logger = logging.getLogger(__name__)
 
@@ -26,4 +27,4 @@ class UserService:
             
             if user:
                 return UserResponse(**user)
-            raise Exception("Failed to create user") 
+            raise DatabaseError("Failed to create user") 

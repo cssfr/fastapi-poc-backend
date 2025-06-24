@@ -145,3 +145,137 @@ class MarketDataRepository:
         
         # Convert to list of dicts
         return [dict(zip(columns, row)) for row in result] 
+    
+    async def get_multi_symbol_data(self, symbols: List[str], s3_paths_by_symbol: Dict[str, List[str]],
+                                   start_unix: int, end_unix: int,
+                                   interval_seconds: int) -> Dict[str, List[Dict]]:
+        """
+        Optimized query for multiple symbols in one DuckDB query
+        Uses UNION ALL for parallel execution
+        """
+        if not symbols:
+            return {}
+        
+        # Build optimized multi-symbol query with UNION ALL
+        union_queries = []
+        for symbol in symbols:
+            s3_paths = s3_paths_by_symbol.get(symbol, [])
+            if not s3_paths:
+                continue
+                
+            paths_str = "['" + "', '".join(s3_paths) + "']"
+            
+            # Each symbol gets its own subquery
+            subquery = f"""
+                SELECT 
+                    '{symbol}' as symbol,
+                    to_timestamp(bucket_start) as timestamp,
+                    bucket_start as unix_time,
+                    first(open ORDER BY unix_time) as open,
+                    max(high) as high,
+                    min(low) as low,
+                    last(close ORDER BY unix_time) as close,
+                    sum(volume) as volume
+                FROM (
+                    SELECT 
+                        symbol,
+                        timestamp,
+                        unix_time,
+                        open,
+                        high,
+                        low,
+                        close,
+                        volume,
+                        (unix_time // {interval_seconds}) * {interval_seconds} as bucket_start
+                    FROM read_parquet({paths_str})
+                    WHERE symbol = '{symbol}'
+                        AND unix_time >= {start_unix}
+                        AND unix_time <= {end_unix}
+                ) 
+                GROUP BY symbol, bucket_start
+            """
+            union_queries.append(subquery)
+        
+        if not union_queries:
+            return {}
+        
+        # Combine all subqueries with UNION ALL for parallel execution
+        final_query = " UNION ALL ".join(union_queries) + " ORDER BY symbol, unix_time ASC"
+        
+        logger.debug(f"Executing multi-symbol DuckDB query for {len(symbols)} symbols")
+        
+        # Execute the batched query
+        result = self.conn.execute(final_query).fetchall()
+        columns = [desc[0] for desc in self.conn.description]
+        
+        # Group results by symbol
+        results_by_symbol = {}
+        for row in result:
+            row_dict = dict(zip(columns, row))
+            symbol = row_dict['symbol']
+            if symbol not in results_by_symbol:
+                results_by_symbol[symbol] = []
+            results_by_symbol[symbol].append(row_dict)
+        
+        return results_by_symbol
+    
+    async def query_ohlcv_with_projections(self, s3_paths: List[str], symbol: str,
+                                          start_unix: int, end_unix: int,
+                                          columns_needed: List[str]) -> List[Dict]:
+        """
+        Optimized query with column projections to reduce data transfer
+        Only reads specified columns from Parquet files
+        """
+        paths_str = "['" + "', '".join(s3_paths) + "']"
+        
+        # Build projection list - always include necessary columns for filtering
+        base_columns = {'symbol', 'unix_time'}
+        projection_columns = base_columns.union(set(columns_needed))
+        columns_str = ', '.join(sorted(projection_columns))
+        
+        query = f"""
+            SELECT {columns_str}
+            FROM read_parquet({paths_str})
+            WHERE symbol = '{symbol}'
+                AND unix_time >= {start_unix}
+                AND unix_time <= {end_unix}
+            ORDER BY unix_time ASC
+        """
+        
+        logger.debug(f"Executing projected DuckDB query with columns: {projection_columns}")
+        
+        # Execute query with projections
+        result = self.conn.execute(query).fetchall()
+        columns = [desc[0] for desc in self.conn.description]
+        
+        return [dict(zip(columns, row)) for row in result]
+    
+    async def query_ohlcv_parallel_batched(self, symbols_and_paths: List[Dict],
+                                          start_unix: int, end_unix: int,
+                                          interval_seconds: int,
+                                          batch_size: int = 5) -> Dict[str, List[Dict]]:
+        """
+        Execute parallel batched queries for better performance with many symbols
+        Processes symbols in batches to avoid query size limits
+        """
+        all_results = {}
+        
+        # Process symbols in batches
+        for i in range(0, len(symbols_and_paths), batch_size):
+            batch = symbols_and_paths[i:i + batch_size]
+            
+            # Build batch query
+            batch_symbols = [item['symbol'] for item in batch]
+            batch_paths = {item['symbol']: item['s3_paths'] for item in batch}
+            
+            # Execute batch
+            batch_results = await self.get_multi_symbol_data(
+                batch_symbols, batch_paths, start_unix, end_unix, interval_seconds
+            )
+            
+            # Merge results
+            all_results.update(batch_results)
+            
+            logger.debug(f"Completed batch {i//batch_size + 1} with {len(batch)} symbols")
+        
+        return all_results

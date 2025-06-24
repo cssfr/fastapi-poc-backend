@@ -5,6 +5,7 @@ import logging
 from app.database import db
 from app.models import StrategyCreate, StrategyResponse, StrategyUpdate
 from app.repositories.strategy_repository import StrategyRepository
+from app.core.exceptions import StrategyNotFoundException, StrategyException
 
 logger = logging.getLogger(__name__)
 
@@ -23,19 +24,21 @@ class StrategyService:
         
         if row:
             return StrategyResponse(**row)
-        raise Exception("Failed to create strategy")
+        raise StrategyException("Failed to create strategy")
     
     async def get_user_strategies(self, user_id: str, include_public: bool = True) -> List[StrategyResponse]:
         """Get strategies for a user (optionally including public ones)"""
         rows = await self.repository.get_by_user(uuid.UUID(user_id), include_public)
         return [StrategyResponse(**row) for row in rows]
     
-    async def get_strategy_by_id(self, user_id: str, strategy_id: str) -> Optional[StrategyResponse]:
+    async def get_strategy_by_id(self, user_id: str, strategy_id: str) -> StrategyResponse:
         """Get a specific strategy by ID"""
         row = await self.repository.get_by_id(uuid.UUID(strategy_id), uuid.UUID(user_id))
-        return StrategyResponse(**row) if row else None
+        if not row:
+            raise StrategyNotFoundException(strategy_id=strategy_id)
+        return StrategyResponse(**row)
     
-    async def update_strategy(self, user_id: str, strategy_id: str, data: StrategyUpdate) -> Optional[StrategyResponse]:
+    async def update_strategy(self, user_id: str, strategy_id: str, data: StrategyUpdate) -> StrategyResponse:
         """Update a strategy (only by owner)"""
         # Build dynamic update query (business logic)
         update_fields = []
@@ -60,9 +63,14 @@ class StrategyService:
         values.extend([uuid.UUID(strategy_id), uuid.UUID(user_id)])
         
         row = await self.repository.update(uuid.UUID(strategy_id), uuid.UUID(user_id), update_fields, values)
-        return StrategyResponse(**row) if row else None
+        if not row:
+            raise StrategyNotFoundException(strategy_id=strategy_id)
+        return StrategyResponse(**row)
     
     async def delete_strategy(self, user_id: str, strategy_id: str) -> bool:
         """Delete a strategy (only by owner)"""
         result = await self.repository.delete(uuid.UUID(strategy_id), uuid.UUID(user_id))
-        return result == "DELETE 1" 
+        success = result == "DELETE 1"
+        if not success:
+            raise StrategyNotFoundException(strategy_id=strategy_id)
+        return True 

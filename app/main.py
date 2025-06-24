@@ -7,8 +7,8 @@ from .database import db
 from .models import Item
 from .middleware import LoggingMiddleware, ErrorHandlingMiddleware
 from .logging_config import setup_logging
-from .exceptions import NotFoundError, ValidationError, DatabaseError
 from app.api.v1.router import api_router
+from app.api.exception_handlers import register_exception_handlers
 from typing import List
 import logging
 import uuid
@@ -84,41 +84,8 @@ app.add_middleware(
 # Include routers
 app.include_router(api_router)
 
-# Exception handlers
-@app.exception_handler(NotFoundError)
-async def not_found_exception_handler(request: Request, exc: NotFoundError):
-    return JSONResponse(
-        status_code=status.HTTP_404_NOT_FOUND,
-        content={
-            "detail": exc.message,
-            "type": "not_found",
-            "request_id": getattr(request.state, "request_id", "unknown")
-        }
-    )
-
-@app.exception_handler(ValidationError)
-async def validation_exception_handler(request: Request, exc: ValidationError):
-    return JSONResponse(
-        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-        content={
-            "detail": exc.message,
-            "type": "validation_error",
-            "errors": exc.details,
-            "request_id": getattr(request.state, "request_id", "unknown")
-        }
-    )
-
-@app.exception_handler(DatabaseError)
-async def database_exception_handler(request: Request, exc: DatabaseError):
-    logger.error(f"Database error: {exc.message}", extra={"details": exc.details})
-    return JSONResponse(
-        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        content={
-            "detail": "Database operation failed",
-            "type": "database_error",
-            "request_id": getattr(request.state, "request_id", "unknown")
-        }
-    )
+# Register exception handlers
+register_exception_handlers(app)
 
 @app.get("/")
 async def root():

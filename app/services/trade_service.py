@@ -7,6 +7,7 @@ from app.database import db
 from app.models import TradeCreate, TradeResponse, TradeType
 from app.services.backtest_service import BacktestService
 from app.repositories.trade_repository import TradeRepository
+from app.core.exceptions import TradeException, BacktestNotFoundException
 
 logger = logging.getLogger(__name__)
 
@@ -14,7 +15,7 @@ class TradeService:
     def __init__(self, repository: TradeRepository = None, backtest_service: BacktestService = None):
         self.repository = repository or TradeRepository()
         self.backtest_service = backtest_service or BacktestService()
-    async def create_trade(self, user_id: str, data: TradeCreate) -> Optional[TradeResponse]:
+    async def create_trade(self, user_id: str, data: TradeCreate) -> TradeResponse:
         """Create a new trade with transaction support"""
         try:
             async with db.transaction() as conn:
@@ -24,7 +25,7 @@ class TradeService:
                 )
                 
                 if not backtest:
-                    return None
+                    raise BacktestNotFoundException(backtest_id=str(data.backtest_id), user_id=user_id)
                 
                 # Create trade and update backtest total_trades count (special method for TWO queries)
                 row = await self.repository.create_with_backtest_update(
@@ -39,7 +40,7 @@ class TradeService:
                 
                 if row:
                     return TradeResponse(**row)
-                raise Exception("Failed to create trade")
+                raise TradeException("Failed to create trade")
                 
         except Exception as e:
             logger.error(f"Error creating trade: {e}")
@@ -47,10 +48,8 @@ class TradeService:
     
     async def get_backtest_trades(self, user_id: str, backtest_id: str) -> List[TradeResponse]:
         """Get all trades for a backtest"""
-        # First verify backtest belongs to user (business logic)
+        # First verify backtest belongs to user (business logic) - this will raise BacktestNotFoundException if not found
         backtest = await self.backtest_service.get_backtest_by_id(user_id, backtest_id)
-        if not backtest:
-            return []
         
         rows = await self.repository.get_by_backtest(uuid.UUID(backtest_id))
         return [TradeResponse(**row) for row in rows] 
