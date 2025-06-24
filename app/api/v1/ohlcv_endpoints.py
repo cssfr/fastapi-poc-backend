@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
 from typing import List, Optional
-from datetime import datetime, timezone
+from datetime import datetime, timezone, date
 import logging
 
 from app.auth import verify_token
@@ -138,7 +138,6 @@ async def get_ohlcv_data_get(
     """Get OHLCV data using GET with query parameters"""
     try:
         # Parse dates and create OHLCVRequest object for validation
-        from datetime import date
         parsed_start_date = date.fromisoformat(start_date)
         parsed_end_date = date.fromisoformat(end_date)
         
@@ -192,7 +191,7 @@ async def _get_ohlcv_data_internal(request: Request, ohlcv_request: OHLCVRequest
         start_date=ohlcv_request.start_date,
         end_date=ohlcv_request.end_date,
         timeframe=ohlcv_request.timeframe,
-        source_resolution=ohlcv_request.source_resolution  # Use from request instead of hardcoded
+        source_resolution=ohlcv_request.source_resolution
     )
     
     if not data:
@@ -214,9 +213,9 @@ async def _get_ohlcv_data_internal(request: Request, ohlcv_request: OHLCVRequest
     # Convert to response format
     ohlcv_data = [
         OHLCVData(
-            symbol=ohlcv_request.symbol,  # Add missing symbol field
+            symbol=ohlcv_request.symbol,
             timestamp=row['timestamp'],
-                            unix_time=row.get('unix_time', int(datetime.fromisoformat(row['timestamp'].replace('Z', '+00:00')).replace(tzinfo=timezone.utc).timestamp())),  # Add missing unix_time field (UTC-aware)
+            unix_time=row.get('unix_time', int(datetime.fromisoformat(row['timestamp'].replace('Z', '+00:00')).replace(tzinfo=timezone.utc).timestamp())),
             open=row['open'],
             high=row['high'],
             low=row['low'],
@@ -229,7 +228,7 @@ async def _get_ohlcv_data_internal(request: Request, ohlcv_request: OHLCVRequest
     response = OHLCVResponse(
         symbol=ohlcv_request.symbol,
         timeframe=ohlcv_request.timeframe,
-        source_resolution=ohlcv_request.source_resolution,  # Add source_resolution to response
+        source_resolution=ohlcv_request.source_resolution,
         start_date=ohlcv_request.start_date.isoformat(),  # Convert to string for response
         end_date=ohlcv_request.end_date.isoformat(),  # Convert to string for response
         data=ohlcv_data,
