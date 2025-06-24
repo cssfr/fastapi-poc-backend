@@ -7,15 +7,16 @@ from typing import List, Optional
 from datetime import datetime
 import json
 from io import BytesIO
+from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
 # MinIO configuration from environment
-MINIO_ENDPOINT = os.getenv("MINIO_ENDPOINT", "localhost:9000")
-MINIO_ACCESS_KEY = os.getenv("MINIO_ACCESS_KEY")
-MINIO_SECRET_KEY = os.getenv("MINIO_SECRET_KEY")
-MINIO_SECURE = os.getenv("MINIO_SECURE", "false").lower() == "true"
-MINIO_BUCKET = os.getenv("MINIO_BUCKET", "dukascopy-node")
+MINIO_ENDPOINT = settings.minio_endpoint or "localhost:9000"
+MINIO_ACCESS_KEY = settings.minio_access_key
+MINIO_SECRET_KEY = settings.minio_secret_key
+MINIO_SECURE = settings.minio_secure
+MINIO_BUCKET = settings.minio_bucket
 
 if not MINIO_ACCESS_KEY or not MINIO_SECRET_KEY:
     logger.warning("MinIO credentials not configured. MinIO features will be disabled.")

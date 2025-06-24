@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from typing import List, Optional
-from app.services import BacktestService
+from app.services.backtest_service import BacktestService
 from app.models import BacktestCreate, BacktestResponse, BacktestUpdate
 from app.auth import verify_token
 import logging
@@ -30,7 +30,8 @@ async def create_backtest(
             }
         )
         
-        backtest = await BacktestService.create_backtest(user_id, backtest_data)
+        service = BacktestService()
+        backtest = await service.create_backtest(user_id, backtest_data)
         
         logger.info(
             f"Backtest created successfully: {backtest.id}",
@@ -62,7 +63,8 @@ async def get_backtests(request: Request, user_id: str = Depends(verify_token)):
             }
         )
         
-        backtests = await BacktestService.get_user_backtests(user_id)
+        service = BacktestService()
+        backtests = await service.get_user_backtests(user_id)
         return backtests
         
     except Exception as e:
@@ -85,7 +87,8 @@ async def get_backtest(request: Request, backtest_id: str, user_id: str = Depend
             }
         )
         
-        backtest = await BacktestService.get_backtest_by_id(user_id, backtest_id)
+        service = BacktestService()
+        backtest = await service.get_backtest_by_id(user_id, backtest_id)
         
         if not backtest:
             logger.warning(
@@ -130,7 +133,8 @@ async def update_backtest(
             }
         )
         
-        backtest = await BacktestService.update_backtest(user_id, backtest_id, update_data)
+        service = BacktestService()
+        backtest = await service.update_backtest(user_id, backtest_id, update_data)
         
         if not backtest:
             logger.warning(
@@ -183,7 +187,8 @@ async def delete_backtest(
             }
         )
         
-        success = await BacktestService.delete_backtest(user_id, backtest_id)
+        service = BacktestService()
+        success = await service.delete_backtest(user_id, backtest_id)
         
         if not success:
             logger.warning(

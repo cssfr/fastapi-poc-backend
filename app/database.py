@@ -4,10 +4,11 @@ from typing import Optional, List, Dict, Any
 from contextlib import asynccontextmanager
 import logging
 import urllib.parse
+from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
-DATABASE_URL = os.getenv("DATABASE_URL")
+DATABASE_URL = settings.database_url
 
 if not DATABASE_URL:
     raise RuntimeError("Missing DATABASE_URL environment variable")
@@ -17,24 +18,13 @@ class Database:
         self._pool: Optional[asyncpg.Pool] = None
     
     async def connect(self):
-        """Initialize database connection pool"""
+        """Connect to the database"""
         try:
-            # Parse DATABASE_URL to check if SSL is needed
-            parsed = urllib.parse.urlparse(DATABASE_URL)
-            
-            # Determine SSL mode
-            ssl_mode = None
-            if parsed.hostname and not parsed.hostname.endswith('.local'):
-                ssl_mode = 'prefer'  # Try SSL first, fall back if not available
-            
-            self._pool = await asyncpg.create_pool(
+            self.pool = await asyncpg.create_pool(
                 DATABASE_URL,
-                min_size=1,
-                max_size=5,  # Reduced for Supabase
-                max_queries=50000,
-                max_inactive_connection_lifetime=300,
-                command_timeout=60,
-                ssl=ssl_mode
+                min_size=settings.db_pool_min,
+                max_size=settings.db_pool_max,
+                command_timeout=60
             )
             logger.info("Database connection pool created successfully")
         except Exception as e:

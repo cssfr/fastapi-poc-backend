@@ -14,11 +14,12 @@ import logging
 import uuid
 import os
 import re
+from app.core.config import settings
 
 # Setup logging
 setup_logging(
-    log_level=os.getenv("LOG_LEVEL", "INFO"),
-    use_json=os.getenv("LOG_FORMAT", "json") == "json"
+    log_level=settings.log_level,
+    use_json=settings.log_format == "json"
 )
 
 logger = logging.getLogger(__name__)

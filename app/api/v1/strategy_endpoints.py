@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from typing import List
-from app.services import StrategyService
+from app.services.strategy_service import StrategyService
 from app.models import StrategyCreate, StrategyResponse, StrategyUpdate
 from app.auth import verify_token
 import logging
@@ -30,7 +30,8 @@ async def create_strategy(
             }
         )
         
-        strategy = await StrategyService.create_strategy(user_id, strategy_data)
+        service = StrategyService()
+        strategy = await service.create_strategy(user_id, strategy_data)
         
         logger.info(
             f"Strategy created successfully: {strategy.id}",
@@ -67,7 +68,8 @@ async def get_strategies(
             }
         )
         
-        strategies = await StrategyService.get_user_strategies(user_id, include_public)
+        service = StrategyService()
+        strategies = await service.get_user_strategies(user_id, include_public)
         
         logger.info(
             f"Found {len(strategies)} strategies",
@@ -105,7 +107,8 @@ async def get_strategy(
             }
         )
         
-        strategy = await StrategyService.get_strategy_by_id(user_id, strategy_id)
+        service = StrategyService()
+        strategy = await service.get_strategy_by_id(user_id, strategy_id)
         
         if not strategy:
             logger.warning(
@@ -150,7 +153,8 @@ async def update_strategy(
             }
         )
         
-        strategy = await StrategyService.update_strategy(user_id, strategy_id, update_data)
+        service = StrategyService()
+        strategy = await service.update_strategy(user_id, strategy_id, update_data)
         
         if not strategy:
             logger.warning(
@@ -203,7 +207,8 @@ async def delete_strategy(
             }
         )
         
-        success = await StrategyService.delete_strategy(user_id, strategy_id)
+        service = StrategyService()
+        success = await service.delete_strategy(user_id, strategy_id)
         
         if not success:
             logger.warning(

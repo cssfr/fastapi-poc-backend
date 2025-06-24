@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from fastapi.security import HTTPAuthorizationCredentials
 from app.auth import get_user_info, security, verify_token
-from app.services import UserService
+from app.services.user_service import UserService
 from app.models import UserResponse
 import logging
 
@@ -29,7 +29,8 @@ async def get_current_user(request: Request, cred: HTTPAuthorizationCredentials 
         )
         
         # Get or create user in database
-        user = await UserService.get_or_create_user(
+        service = UserService()
+        user = await service.get_or_create_user(
             user_id=user_id,
             email=user_info.get("email", f"user_{user_id}@placeholder.com")
         )

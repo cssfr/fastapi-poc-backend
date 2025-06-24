@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from typing import List
-from app.services import TradeService
+from app.services.trade_service import TradeService
 from app.models import TradeCreate, TradeResponse
 from app.auth import verify_token
 import logging
@@ -32,7 +32,8 @@ async def create_trade(
             }
         )
         
-        trade = await TradeService.create_trade(user_id, trade_data)
+        service = TradeService()
+        trade = await service.create_trade(user_id, trade_data)
         
         if not trade:
             logger.warning(
@@ -86,7 +87,8 @@ async def get_backtest_trades(
             }
         )
         
-        trades = await TradeService.get_backtest_trades(user_id, backtest_id)
+        service = TradeService()
+        trades = await service.get_backtest_trades(user_id, backtest_id)
         
         logger.info(
             f"Found {len(trades)} trades for backtest {backtest_id}",
