@@ -10,11 +10,11 @@ logger = logging.getLogger(__name__)
 router = APIRouter(
     prefix="/api/v1/users",
     tags=["users"],
-    dependencies=[Depends(verify_token)]
+    # Remove router-level auth to allow OPTIONS preflight requests
 )
 
 @router.get("/", response_model=UserResponse)
-async def get_current_user(request: Request, cred: HTTPAuthorizationCredentials = Depends(security)):
+async def get_current_user(request: Request, user_id: str = Depends(verify_token), cred: HTTPAuthorizationCredentials = Depends(security)):
     """Get current user profile"""
     try:
         user_info = get_user_info(cred)

@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(
     prefix="/api/v1/strategies",
     tags=["strategies"],
-    dependencies=[Depends(verify_token)]
+    # Remove router-level auth to allow OPTIONS preflight requests
 )
 
 @router.post("", response_model=StrategyResponse, status_code=status.HTTP_201_CREATED)

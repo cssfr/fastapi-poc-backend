@@ -96,6 +96,15 @@ async def root():
         "health": "/api/v1/health/"
     }
 
+@app.get("/cors-test")
+async def cors_test():
+    """Simple endpoint to test CORS without authentication"""
+    return {
+        "status": "ok",
+        "message": "CORS test successful - no authentication required",
+        "timestamp": "2024-01-01T00:00:00Z"
+    }
+
 # Legacy endpoint for backward compatibility
 @app.get("/items", response_model=List[Item])
 async def read_items(request: Request, user_id: str = Depends(verify_token)):

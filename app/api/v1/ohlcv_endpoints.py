@@ -17,11 +17,11 @@ market_data_service = MarketDataService()
 router = APIRouter(
     prefix="/api/v1/ohlcv",
     tags=["ohlcv"],
-    dependencies=[Depends(verify_token)]
+    # Remove router-level auth to allow OPTIONS preflight requests
 )
 
 @router.get("/symbols", response_model=List[str])
-async def get_available_symbols(request: Request):
+async def get_available_symbols(request: Request, user_id: str = Depends(verify_token)):
     """Get all available symbols in the dataset"""
     try:
         logger.info(
@@ -49,7 +49,7 @@ async def get_available_symbols(request: Request):
         )
 
 @router.get("/timeframes", response_model=List[str])
-async def get_available_timeframes(request: Request):
+async def get_available_timeframes(request: Request, user_id: str = Depends(verify_token)):
     """Get all available timeframes"""
     try:
         logger.info(
@@ -81,7 +81,8 @@ async def get_available_timeframes(request: Request):
 async def get_symbol_date_range(
     request: Request,
     symbol: str,
-    timeframe: str = Query(..., description="Timeframe (e.g., '1m', '5m', '1h', '1d')")
+    timeframe: str = Query(..., description="Timeframe (e.g., '1m', '5m', '1h', '1d')"),
+    user_id: str = Depends(verify_token)
 ):
     """Get the available date range for a specific symbol and timeframe"""
     try:
@@ -133,7 +134,8 @@ async def get_ohlcv_data_get(
     start_date: str = Query(..., description="Start date (YYYY-MM-DD)"),
     end_date: str = Query(..., description="End date (YYYY-MM-DD)"),
     timeframe: str = Query("1d", pattern="^(1m|5m|15m|30m|1h|4h|1d|1w)$", description="Timeframe"),
-    source_resolution: str = Query("1Y", description="Source resolution (1m or 1Y)")
+    source_resolution: str = Query("1Y", description="Source resolution (1m or 1Y)"),
+    user_id: str = Depends(verify_token)
 ):
     """Get OHLCV data using GET with query parameters"""
     try:
@@ -248,7 +250,7 @@ async def _get_ohlcv_data_internal(request: Request, ohlcv_request: OHLCVRequest
     return response
 
 @router.post("/data", response_model=OHLCVResponse)
-async def get_ohlcv_data_post(request: Request, ohlcv_request: OHLCVRequest):
+async def get_ohlcv_data_post(request: Request, ohlcv_request: OHLCVRequest, user_id: str = Depends(verify_token)):
     """Get OHLCV data for specified parameters using POST with request body"""
     try:
         return await _get_ohlcv_data_internal(request, ohlcv_request)
@@ -263,7 +265,7 @@ async def get_ohlcv_data_post(request: Request, ohlcv_request: OHLCVRequest):
         )
 
 @router.get("/metadata/{symbol}")
-async def get_symbol_metadata(request: Request, symbol: str):
+async def get_symbol_metadata(request: Request, symbol: str, user_id: str = Depends(verify_token)):
     """Get metadata for a specific symbol"""
     try:
         logger.info(
@@ -307,7 +309,7 @@ async def get_symbol_metadata(request: Request, symbol: str):
         )
 
 @router.get("/storage/status")
-async def get_storage_status(request: Request):
+async def get_storage_status(request: Request, user_id: str = Depends(verify_token)):
     """Get storage system status"""
     try:
         logger.info(
@@ -328,7 +330,7 @@ async def get_storage_status(request: Request):
         )
 
 @router.get("/cache/clear")
-async def clear_cache(request: Request):
+async def clear_cache(request: Request, user_id: str = Depends(verify_token)):
     """Clear the OHLCV data cache"""
     try:
         logger.info(
