@@ -308,27 +308,6 @@ async def get_symbol_metadata(request: Request, symbol: str, user_id: str = Depe
             detail="Failed to fetch symbol metadata"
         )
 
-@router.get("/storage/status")
-async def get_storage_status(request: Request, user_id: str = Depends(verify_token)):
-    """Get storage system status"""
-    try:
-        logger.info(
-            "Checking storage status",
-            extra={"request_id": getattr(request.state, "request_id", "unknown")}
-        )
-        
-        service = StorageService()
-        status_info = await service.get_bucket_status()
-        
-        return status_info
-        
-    except Exception as e:
-        logger.error(f"Error checking storage status: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to check storage status"
-        )
-
 @router.get("/cache/clear")
 async def clear_cache(request: Request, user_id: str = Depends(verify_token)):
     """Clear the OHLCV data cache"""

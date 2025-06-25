@@ -1,6 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Request
-from fastapi.security import HTTPAuthorizationCredentials
-from app.auth import get_user_info, security, verify_token
+from app.auth import get_user_info
 from app.services.user_service import UserService
 from app.models import UserResponse
 import logging
@@ -14,10 +13,9 @@ router = APIRouter(
 )
 
 @router.get("/", response_model=UserResponse)
-async def get_current_user(request: Request, user_id: str = Depends(verify_token), cred: HTTPAuthorizationCredentials = Depends(security)):
+async def get_current_user(request: Request, user_info: dict = Depends(get_user_info)):
     """Get current user profile"""
     try:
-        user_info = get_user_info(cred)
         user_id = user_info["user_id"]
         
         logger.info(

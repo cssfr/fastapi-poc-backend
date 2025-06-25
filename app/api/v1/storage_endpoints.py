@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, status, Request
+from fastapi import APIRouter, HTTPException, status, Request, Depends
 from typing import Dict, Any
 import logging
 
@@ -14,7 +14,7 @@ router = APIRouter(
 )
 
 @router.get("/status")
-async def get_storage_status(request: Request) -> Dict[str, Any]:
+async def get_storage_status(request: Request, user_id: str = Depends(verify_token)) -> Dict[str, Any]:
     """Get MinIO storage status"""
     try:
         logger.info(
@@ -50,7 +50,7 @@ async def get_storage_status(request: Request) -> Dict[str, Any]:
         )
 
 @router.get("/buckets")
-async def list_buckets(request: Request):
+async def list_buckets(request: Request, user_id: str = Depends(verify_token)):
     """List available buckets"""
     try:
         logger.info(
@@ -79,7 +79,7 @@ async def list_buckets(request: Request):
         )
 
 @router.get("/health")
-async def storage_health_check(request: Request):
+async def storage_health_check(request: Request, user_id: str = Depends(verify_token)):
     """Storage-specific health check"""
     try:
         logger.info(

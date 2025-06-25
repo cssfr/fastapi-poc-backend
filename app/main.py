@@ -76,10 +76,23 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
+    expose_headers=["X-Request-ID", "X-Process-Time"],
 )
 
 # Add other middleware AFTER CORS
 app.add_middleware(LoggingMiddleware)
+
+# Handle favicon.ico to prevent 404 errors
+@app.get("/favicon.ico", include_in_schema=False)
+async def favicon():
+    """Handle favicon requests to prevent 404 errors"""
+    return {"message": "No favicon configured"}
+
+# Handle robots.txt to prevent 404 errors
+@app.get("/robots.txt", include_in_schema=False)
+async def robots():
+    """Handle robots.txt requests to prevent 404 errors"""
+    return {"message": "No robots.txt configured"}
 
 # Include routers
 app.include_router(api_router)
