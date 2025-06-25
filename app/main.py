@@ -1,5 +1,6 @@
 from fastapi import FastAPI, Depends, HTTPException, status, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import JSONResponse
 from contextlib import asynccontextmanager
 from app.auth import verify_token
@@ -56,7 +57,13 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# CORS configuration - MUST BE FIRST!
+# Trust reverse proxy headers - MUST BE FIRST!
+app.add_middleware(
+    TrustedHostMiddleware, 
+    allowed_hosts=["*"]  # Allow all hosts since we're behind Traefik
+)
+
+# CORS configuration - MUST BE SECOND!
 origins = [
     "http://localhost:3000",
     "http://localhost:3001",
