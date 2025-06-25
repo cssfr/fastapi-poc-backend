@@ -57,11 +57,11 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# Trust reverse proxy headers - MUST BE FIRST!
-app.add_middleware(
-    TrustedHostMiddleware, 
-    allowed_hosts=["*"]  # Allow all hosts since we're behind Traefik
-)
+# # Trust reverse proxy headers - MUST BE FIRST!
+# app.add_middleware(
+#     TrustedHostMiddleware, 
+#     allowed_hosts=["*"]  # Allow all hosts since we're behind Traefik
+# )
 
 # CORS configuration - MUST BE SECOND!
 origins = [
