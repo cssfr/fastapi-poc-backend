@@ -19,7 +19,7 @@ def create_error_response(request: Request, exc: Exception, status_code: int):
         f"Error handling request {request_id}",
         extra={
             "request_id": request_id,
-            "path": request.url.path,
+            "path": request.scope["path"],
             "method": request.method,
             "error_type": type(exc).__name__,
             "error_message": str(exc)
@@ -36,7 +36,7 @@ def create_error_response(request: Request, exc: Exception, status_code: int):
             },
             "request_id": request_id,
             "timestamp": datetime.utcnow().isoformat(),
-            "path": request.url.path
+            "path": request.scope["path"]
         }
     )
 

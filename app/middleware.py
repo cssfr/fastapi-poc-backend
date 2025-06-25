@@ -27,7 +27,7 @@ class LoggingMiddleware(BaseHTTPMiddleware):
             extra={
                 "request_id": request_id,
                 "method": request.method,
-                "path": request.url.path,
+                "path": request.scope["path"],
                 "query_params": str(request.query_params),
                 "client_host": request.client.host if request.client else None,
             }
