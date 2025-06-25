@@ -63,14 +63,16 @@ origins = [
     "https://glowing-space-telegram-5gx544xgv6rg2jgq-3001.app.github.dev",
     "http://localhost:5173",  
     "http://localhost:5174",
-    "https://f-stage.backtesting.theworkpc.com",
-    "https://front-stage.backtesting.theworkpc.com",
+    "http://f-stage.backtesting.theworkpc.com",   # Add HTTP version
+    "https://f-stage.backtesting.theworkpc.com",  # Keep HTTPS version
+    "http://front-stage.backtesting.theworkpc.com",   # Add HTTP version
+    "https://front-stage.backtesting.theworkpc.com",  # Keep HTTPS version
 ]
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
-    allow_origin_regex=r"https:\/\/(?:.*\.)?front-stage\.backtesting\.theworkpc\.com",
+    allow_origin_regex=r"https?:\/\/(?:.*\.)?front-stage\.backtesting\.theworkpc\.com",
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
