@@ -56,10 +56,7 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# Add middleware
-app.add_middleware(LoggingMiddleware)
-
-# CORS configuration
+# CORS configuration - MUST BE FIRST!
 origins = [
     "http://localhost:3000",
     "http://localhost:3001",
@@ -68,7 +65,6 @@ origins = [
     "http://localhost:5174",
     "https://f-stage.backtesting.theworkpc.com",
     "https://front-stage.backtesting.theworkpc.com",
-    r"|https:\/\/.*\.front-stage\.backtesting\.theworkpc\.com"
 ]
 
 app.add_middleware(
@@ -76,9 +72,12 @@ app.add_middleware(
     allow_origins=origins,
     allow_origin_regex=r"https:\/\/(?:.*\.)?front-stage\.backtesting\.theworkpc\.com",
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
 )
+
+# Add other middleware AFTER CORS
+app.add_middleware(LoggingMiddleware)
 
 # Include routers
 app.include_router(api_router)
