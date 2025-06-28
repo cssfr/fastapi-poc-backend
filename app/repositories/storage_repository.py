@@ -1,3 +1,4 @@
+import asyncio
 from typing import List, Dict, Optional
 from minio import Minio
 from minio.error import S3Error
@@ -9,13 +10,16 @@ class StorageRepository:
     def __init__(self, minio_client: Minio):
         self.client = minio_client
     
-    async def list_buckets(self) -> List[str]:
+    def list_buckets(self) -> List[str]:
         """List all available buckets"""
         if not self.client:
             raise RuntimeError("MinIO client not configured")
         
         try:
-            buckets = self.client.list_buckets()
+            # Run the blocking operation in a thread pool
+            buckets = asyncio.get_event_loop().run_in_executor(
+                None, self.client.list_buckets
+            )
             return [bucket.name for bucket in buckets]
         except S3Error as e:
             logger.error(f"Failed to list buckets: {e}")
