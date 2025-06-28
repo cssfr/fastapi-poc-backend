@@ -47,7 +47,13 @@ class MarketDataCache:
                 logger.warning(f"Redis cache get failed: {e}")
                 
         # Fallback to memory cache
-        return self._memory_cache.get(key)
+        cached_entry = self._memory_cache.get(key)
+        if cached_entry:
+            # Memory cache stores (value, expiration_timestamp) tuples
+            value, expiration_timestamp = cached_entry
+            # TODO: Implement TTL expiration check here in the future
+            return value
+        return None
     
     async def set(self, key: str, value: Any, ttl: Optional[int] = None):
         """Set cached data"""
