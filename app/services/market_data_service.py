@@ -62,14 +62,17 @@ class MarketDataService:
             "1h": 3600,     # 1 hour
             "4h": 14400,    # 4 hours
             "1d": 86400,    # 1 day
-            "1w": 604800    # 1 week
+            "1w": 604800,   # 1 week
+            "1M": 2592000   # 1 month (30 days)
         }
-        return interval_mapping.get(timeframe, 86400)  # Default to 1 day
+        normalized_timeframe = timeframe.lower()
+        return interval_mapping.get(normalized_timeframe, 86400)  # Default to 1 day
     
     def _validate_timeframe(self, timeframe: str):
         """Validate that timeframe is supported"""
-        valid_timeframes = ["1m", "5m", "15m", "30m", "1h", "4h", "1d", "1w"]
-        if timeframe not in valid_timeframes:
+        valid_timeframes = ["1m", "5m", "15m", "30m", "1h", "4h", "1d", "1w", "1M"]
+        normalized_timeframe = timeframe.lower()
+        if normalized_timeframe not in valid_timeframes:
             raise ValueError(f"Invalid timeframe: {timeframe}. Must be one of: {valid_timeframes}")
     
     def _validate_source_resolution(self, source_resolution: str):
