@@ -64,7 +64,8 @@ class MarketDataCache:
                 logger.warning(f"Redis cache set failed: {e}")
         
         # Fallback to memory cache (with basic TTL simulation)
-        self._memory_cache[key] = value
+        expiration_timestamp = datetime.now().timestamp() + ttl if ttl else None
+        self._memory_cache[key] = (value, expiration_timestamp)
         
         # For memory cache, we don't implement TTL expiration
         # In production, you'd want to use a proper cache library
