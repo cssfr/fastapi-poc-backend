@@ -194,6 +194,9 @@ class InstrumentService:
             
         Returns:
             Tuple of (bounded_start_date, bounded_end_date)
+            
+        Raises:
+            ValueError: When the requested date range is completely outside available data
         """
         data_range = await self.get_data_range(symbol, source_resolution)
         if not data_range:
@@ -204,9 +207,51 @@ class InstrumentService:
         available_start_date = date.fromisoformat(available_start)
         available_end_date = date.fromisoformat(available_end)
         
+        # Check if requested range is completely outside available data
+        if start_date > available_end_date:
+            logger.error(
+                f"Requested start date {start_date} is after available data ends {available_end_date}",
+                extra={
+                    "symbol": symbol,
+                    "requested_start": start_date.isoformat(),
+                    "requested_end": end_date.isoformat(),
+                    "available_start": available_start,
+                    "available_end": available_end
+                }
+            )
+            raise ValueError(f"No data available for {symbol}: requested start date {start_date} is after available data ends on {available_end_date}")
+        
+        if end_date < available_start_date:
+            logger.error(
+                f"Requested end date {end_date} is before available data starts {available_start_date}",
+                extra={
+                    "symbol": symbol,
+                    "requested_start": start_date.isoformat(),
+                    "requested_end": end_date.isoformat(),
+                    "available_start": available_start,
+                    "available_end": available_end
+                }
+            )
+            raise ValueError(f"No data available for {symbol}: requested end date {end_date} is before available data starts on {available_start_date}")
+        
         # Bound the dates to available range
         bounded_start = max(start_date, available_start_date)  # Don't go before available start
         bounded_end = min(end_date, available_end_date)        # Don't go after available end
+        
+        # Log the bounding operation
+        if bounded_start != start_date or bounded_end != end_date:
+            logger.info(
+                f"Date range adjusted for {symbol}",
+                extra={
+                    "symbol": symbol,
+                    "requested_start": start_date.isoformat(),
+                    "requested_end": end_date.isoformat(),
+                    "bounded_start": bounded_start.isoformat(),
+                    "bounded_end": bounded_end.isoformat(),
+                    "available_start": available_start,
+                    "available_end": available_end
+                }
+            )
         
         return bounded_start, bounded_end
     
