@@ -211,7 +211,7 @@ class InstrumentService:
         """Bound requested date range to available data bounds
         
         When requested range is completely outside available data, automatically
-        adjusts to the closest valid range within bounds.
+        adjusts to the closest valid range within bounds with intelligent period sizing.
         
         Args:
             symbol: Trading symbol
@@ -224,7 +224,15 @@ class InstrumentService:
         """
         data_range = await self.get_data_range(symbol, source_resolution)
         if not data_range:
-            logger.warning(f"No data range information found for symbol {symbol}")
+            logger.warning(
+                f"No data range information found for symbol {symbol}",
+                extra={
+                    "symbol": symbol,
+                    "source_resolution": source_resolution,
+                    "requested_start": start_date.isoformat(),
+                    "requested_end": end_date.isoformat()
+                }
+            )
             return start_date, end_date  # Return original dates if no range info
             
         available_start, available_end = data_range
@@ -234,10 +242,20 @@ class InstrumentService:
         # Calculate requested period length for fallback scenarios
         requested_days = (end_date - start_date).days
         
+        def _calculate_optimal_period(requested_days: int) -> int:
+            """Calculate optimal period length based on request size for performance"""
+            if requested_days <= 0:
+                return 1  # Minimum 1 day for same-day requests
+            elif requested_days <= 7:
+                return requested_days  # Keep short requests (1-7 days) as-is
+            elif requested_days <= 30:
+                return min(requested_days, 14)  # Cap medium requests (8-30 days) at 2 weeks
+            else:
+                return 30  # Large requests (>30 days) get 30 days max
+        
         # Handle case where requested range is completely after available data
         if start_date > available_end_date:
-            # Default to recent period of same length, or last 30 days if shorter
-            period_days = max(requested_days, 30)
+            period_days = _calculate_optimal_period(requested_days)
             bounded_end = available_end_date
             bounded_start = max(available_start_date, available_end_date - timedelta(days=period_days))
             
@@ -247,19 +265,21 @@ class InstrumentService:
                     "symbol": symbol,
                     "requested_start": start_date.isoformat(),
                     "requested_end": end_date.isoformat(),
+                    "requested_days": requested_days,
+                    "adjusted_days": period_days,
                     "available_start": available_start,
                     "available_end": available_end,
                     "adjusted_start": bounded_start.isoformat(),
                     "adjusted_end": bounded_end.isoformat(),
-                    "adjustment_reason": "requested_after_available"
+                    "adjustment_reason": "requested_after_available",
+                    "performance_optimized": True
                 }
             )
             return bounded_start, bounded_end
         
         # Handle case where requested range is completely before available data
         if end_date < available_start_date:
-            # Default to early period of same length, or first 30 days if shorter
-            period_days = max(requested_days, 30)
+            period_days = _calculate_optimal_period(requested_days)
             bounded_start = available_start_date
             bounded_end = min(available_end_date, available_start_date + timedelta(days=period_days))
             
@@ -269,11 +289,14 @@ class InstrumentService:
                     "symbol": symbol,
                     "requested_start": start_date.isoformat(),
                     "requested_end": end_date.isoformat(),
+                    "requested_days": requested_days,
+                    "adjusted_days": period_days,
                     "available_start": available_start,
                     "available_end": available_end,
                     "adjusted_start": bounded_start.isoformat(),
                     "adjusted_end": bounded_end.isoformat(),
-                    "adjustment_reason": "requested_before_available"
+                    "adjustment_reason": "requested_before_available",
+                    "performance_optimized": True
                 }
             )
             return bounded_start, bounded_end
@@ -284,14 +307,17 @@ class InstrumentService:
         
         # Log the bounding operation if any adjustment was made
         if bounded_start != start_date or bounded_end != end_date:
+            actual_days = (bounded_end - bounded_start).days
             logger.info(
                 f"Date range adjusted to available bounds",
                 extra={
                     "symbol": symbol,
                     "requested_start": start_date.isoformat(),
                     "requested_end": end_date.isoformat(),
+                    "requested_days": requested_days,
                     "bounded_start": bounded_start.isoformat(),
                     "bounded_end": bounded_end.isoformat(),
+                    "actual_days": actual_days,
                     "available_start": available_start,
                     "available_end": available_end,
                     "adjustment_reason": "partial_overlap"
