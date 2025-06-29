@@ -69,8 +69,7 @@ class MarketDataService:
             "1w": 604800,   # 1 week
             "1M": 2592000   # 1 month (30 days)
         }
-        normalized_timeframe = timeframe.lower()
-        return interval_mapping.get(normalized_timeframe, 86400)  # Default to 1 day
+        return interval_mapping.get(timeframe, 86400)  # Default to 1 day
     
     def _validate_timeframe(self, timeframe: str):
         """Validate that timeframe is supported"""
