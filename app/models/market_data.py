@@ -24,7 +24,7 @@ class MarketDataQuery(BaseModel):
     
     @validator('timeframe')
     def validate_timeframe(cls, v):
-        valid = ['1m', '5m', '15m', '30m', '1h', '4h', '1d', '1w', '1M']
+        valid = ['1m', '5m', '15m', '30m', '1h', '4h', '1d', '1w', '1M', '1Y']
         if v not in valid:
             raise ValueError(f"Invalid timeframe. Must be one of: {valid}")
         return v

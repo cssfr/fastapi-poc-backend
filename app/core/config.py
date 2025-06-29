@@ -26,18 +26,19 @@ class Settings(BaseSettings):
     minio_secure: bool = False
     minio_bucket: str = "dukascopy-node"
     
-    # OHLCV Request Limits - Updated for aggregated timeframes
+    # OHLCV Request Limits - Updated for yearly timeframes
     max_records_per_request: int = 50000
     max_days_by_timeframe: Dict[str, int] = {
-        "1m": 7,      # 1-minute data: max 1 week
-        "5m": 30,     # 5-minute data: max 1 month  
-        "15m": 90,    # 15-minute data: max 3 months
-        "30m": 180,   # 30-minute data: max 6 months
-        "1h": 365,    # 1-hour data: max 1 year
-        "4h": 1095,   # 4-hour data: max 3 years
-        "1d": 3650,   # 1-day data: max 10 years
-        "1w": 18250,  # 1-week data: max 50 years
-        "1M": 36500,  # Fixed: was "1m" - 1-month data: max 100 years
+        "1m": 7,        # 1-minute data: max 1 week
+        "5m": 30,       # 5-minute data: max 1 month  
+        "15m": 90,      # 15-minute data: max 3 months
+        "30m": 180,     # 30-minute data: max 6 months
+        "1h": 365,      # 1-hour data: max 1 year
+        "4h": 1095,     # 4-hour data: max 3 years
+        "1d": 3650,     # 1-day data: max 10 years
+        "1w": 18250,    # 1-week data: max 50 years
+        "1M": 36500,    # 1-month data: max 100 years
+        "1Y": 36500,    # 1-year data: max 100 years
     }
     
     # Auto-adjustment thresholds

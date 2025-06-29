@@ -59,22 +59,23 @@ class MarketDataService:
     def _get_interval_seconds(self, timeframe: str) -> int:
         """Get interval in seconds for a given timeframe"""
         interval_mapping = {
-            "1m": 60,       # 1 minute
-            "5m": 300,      # 5 minutes
-            "15m": 900,     # 15 minutes  
-            "30m": 1800,    # 30 minutes
-            "1h": 3600,     # 1 hour
-            "4h": 14400,    # 4 hours
-            "1d": 86400,    # 1 day
-            "1w": 604800,   # 1 week
-            "1M": 2592000   # 1 month (30 days)
+            "1m": 60,         # 1 minute
+            "5m": 300,        # 5 minutes
+            "15m": 900,       # 15 minutes  
+            "30m": 1800,      # 30 minutes
+            "1h": 3600,       # 1 hour
+            "4h": 14400,      # 4 hours
+            "1d": 86400,      # 1 day
+            "1w": 604800,     # 1 week
+            "1M": 2592000,    # 1 month (30 days)
+            "1Y": 31536000    # 1 year (365 days)
         }
         return interval_mapping.get(timeframe, 86400)  # Default to 1 day
     
     def _validate_timeframe(self, timeframe: str):
         """Validate that timeframe is supported"""
-        valid_timeframes = ["1m", "5m", "15m", "30m", "1h", "4h", "1d", "1w", "1M"]
-        if timeframe not in valid_timeframes:  # Don't normalize case for 1M
+        valid_timeframes = ["1m", "5m", "15m", "30m", "1h", "4h", "1d", "1w", "1M", "1Y"]
+        if timeframe not in valid_timeframes:
             raise ValueError(f"Invalid timeframe: {timeframe}. Must be one of: {valid_timeframes}")
     
     def _validate_source_resolution(self, source_resolution: str):
@@ -87,20 +88,21 @@ class MarketDataService:
         """Estimate the number of records for a given request for smarter validation"""
         days_requested = (end_date - start_date).days
         
-        # Records per day by timeframe (fixed the 1m/1M conflict)
+        # Records per day by timeframe
         records_per_day = {
-            "1m": 1440,    # 1-minute data: 24 * 60 minutes
-            "5m": 288,     # 5-minute data: 24 * 12 intervals
-            "15m": 96,     # 15-minute data: 24 * 4 intervals 
-            "30m": 48,     # 30-minute data: 24 * 2 intervals
-            "1h": 24,      # 1-hour data: 24 hours
-            "4h": 6,       # 4-hour data: 24 / 4 hours
-            "1d": 1,       # 1-day data: 1 per day
-            "1w": 0.143,   # 1-week data: 1/7 days
-            "1M": 0.033,   # 1-month data: 1/30 days (capital M!)
+            "1m": 1440,      # 1-minute data: 24 * 60 minutes
+            "5m": 288,       # 5-minute data: 24 * 12 intervals
+            "15m": 96,       # 15-minute data: 24 * 4 intervals 
+            "30m": 48,       # 30-minute data: 24 * 2 intervals
+            "1h": 24,        # 1-hour data: 24 hours
+            "4h": 6,         # 4-hour data: 24 / 4 hours
+            "1d": 1,         # 1-day data: 1 per day
+            "1w": 0.143,     # 1-week data: 1/7 days
+            "1M": 0.033,     # 1-month data: 1/30 days
+            "1Y": 0.0027,    # 1-year data: 1/365 days
         }
         
-        daily_records = records_per_day.get(timeframe, 1)  # Use timeframe as-is
+        daily_records = records_per_day.get(timeframe, 1)
         estimated_records = int(days_requested * daily_records)
         
         logger.debug(
