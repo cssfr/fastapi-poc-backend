@@ -75,8 +75,7 @@ class MarketDataService:
     def _validate_timeframe(self, timeframe: str):
         """Validate that timeframe is supported"""
         valid_timeframes = ["1m", "5m", "15m", "30m", "1h", "4h", "1d", "1w", "1M"]
-        normalized_timeframe = timeframe if timeframe == "1M" else timeframe.lower()
-        if normalized_timeframe not in valid_timeframes:
+        if timeframe not in valid_timeframes:  # Don't normalize case for 1M
             raise ValueError(f"Invalid timeframe: {timeframe}. Must be one of: {valid_timeframes}")
     
     def _validate_source_resolution(self, source_resolution: str):
@@ -89,25 +88,20 @@ class MarketDataService:
         """Estimate the number of records for a given request for smarter validation"""
         days_requested = (end_date - start_date).days
         
-        # Records per day by timeframe (approximate)
+        # Records per day by timeframe (fixed the 1m/1M conflict)
         records_per_day = {
-            "1m": 1440,    # 24 * 60 minutes
-            "5m": 288,     # 24 * 12 (5-min intervals)
-            "15m": 96,     # 24 * 4 (15-min intervals) 
-            "30m": 48,     # 24 * 2 (30-min intervals)
-            "1h": 24,      # 24 hours
-            "4h": 6,       # 24 / 4 hours
-            "1d": 1,       # 1 day
-            "1w": 0.143,   # 1/7 days (weekly)
-            "1m": 0.033,   # 1/30 days (monthly, using lowercase 'm' for monthly)
+            "1m": 1440,    # 1-minute data: 24 * 60 minutes
+            "5m": 288,     # 5-minute data: 24 * 12 intervals
+            "15m": 96,     # 15-minute data: 24 * 4 intervals 
+            "30m": 48,     # 30-minute data: 24 * 2 intervals
+            "1h": 24,      # 1-hour data: 24 hours
+            "4h": 6,       # 4-hour data: 24 / 4 hours
+            "1d": 1,       # 1-day data: 1 per day
+            "1w": 0.143,   # 1-week data: 1/7 days
+            "1M": 0.033,   # 1-month data: 1/30 days (capital M!)
         }
         
-        # Handle the monthly case (1M vs 1m conflict)
-        if timeframe == "1M":
-            daily_records = 0.033  # Monthly
-        else:
-            daily_records = records_per_day.get(timeframe.lower(), 1)
-        
+        daily_records = records_per_day.get(timeframe, 1)  # Use timeframe as-is
         estimated_records = int(days_requested * daily_records)
         
         logger.debug(
@@ -127,7 +121,7 @@ class MarketDataService:
         days_requested = (end_date - start_date).days
         estimated_records = self._estimate_record_count(start_date, end_date, timeframe)
         
-        # Check estimated record count (primary constraint for performance)
+        # Check estimated record count first
         if estimated_records > settings.max_records_per_request:
             logger.warning(
                 f"Request rejected - too many estimated records",
@@ -136,15 +130,15 @@ class MarketDataService:
                     "days_requested": days_requested,
                     "estimated_records": estimated_records,
                     "max_records": settings.max_records_per_request,
-                    "start_date": start_date.isoformat(),
-                    "end_date": end_date.isoformat(),
                     "rejection_reason": "record_count_exceeded"
                 }
             )
             raise OHLCVRequestTooLargeError(timeframe, days_requested, settings.max_records_per_request, estimated_records)
         
-        # Check day limits (secondary constraint for business rules)
-        max_days = settings.max_days_by_timeframe.get(timeframe.lower(), 365)
+        # Check day limits (handle 1M case specifically)
+        timeframe_key = timeframe.lower() if timeframe != "1M" else "1m"  # Map 1M to 1m for config lookup
+        max_days = settings.max_days_by_timeframe.get(timeframe_key, 365)
+        
         if days_requested > max_days:
             logger.warning(
                 f"Request rejected - too large date range",
@@ -153,14 +147,12 @@ class MarketDataService:
                     "days_requested": days_requested,
                     "max_days": max_days,
                     "estimated_records": estimated_records,
-                    "start_date": start_date.isoformat(),
-                    "end_date": end_date.isoformat(),
                     "rejection_reason": "date_range_exceeded"
                 }
             )
             raise OHLCVRequestTooLargeError(timeframe, days_requested, max_days, estimated_records)
         
-        # Log successful validation with performance metrics
+        # Log successful validation
         utilization_percent = round((estimated_records / settings.max_records_per_request) * 100, 1)
         logger.info(
             f"Request validation passed",
@@ -168,9 +160,7 @@ class MarketDataService:
                 "timeframe": timeframe,
                 "days_requested": days_requested,
                 "estimated_records": estimated_records,
-                "max_records": settings.max_records_per_request,
-                "utilization_percent": utilization_percent,
-                "validation_status": "approved"
+                "utilization_percent": utilization_percent
             }
         )
     
