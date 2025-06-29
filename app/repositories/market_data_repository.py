@@ -176,13 +176,13 @@ class MarketDataRepository:
         
         paths_str = "['" + "', '".join(s3_paths) + "']"
         
-        # Handle yearly aggregation differently - group by calendar year
+        # Handle yearly aggregation differently - use actual first timestamp per year
         if interval_seconds == 31536000:  # 1Y = 31536000 seconds
             query = f"""
                 SELECT 
                     symbol,
-                    to_timestamp(CONCAT(year_bucket, '-01-01 00:00:00')) as timestamp,
-                    EXTRACT(EPOCH FROM to_timestamp(CONCAT(year_bucket, '-01-01 00:00:00'))) as unix_time,
+                    to_timestamp(first_timestamp) as timestamp,
+                    first_timestamp as unix_time,
                     first(open ORDER BY unix_time) as open,
                     max(high) as high,
                     min(low) as low,
@@ -194,15 +194,27 @@ class MarketDataRepository:
                         timestamp,
                         unix_time,
                         open, high, low, close, volume,
-                        EXTRACT(YEAR FROM to_timestamp(unix_time)) as year_bucket
+                        EXTRACT(YEAR FROM to_timestamp(unix_time)) as year_bucket,
+                        min(unix_time) OVER (PARTITION BY EXTRACT(YEAR FROM to_timestamp(unix_time))) as first_timestamp
                     FROM read_parquet({paths_str})
                     WHERE symbol = '{symbol}'
-                        AND unix_time >= {start_unix}
-                        AND unix_time <= {end_unix}
+                        AND EXTRACT(YEAR FROM to_timestamp(unix_time)) >= EXTRACT(YEAR FROM to_timestamp({start_unix}))
+                        AND EXTRACT(YEAR FROM to_timestamp(unix_time)) <= EXTRACT(YEAR FROM to_timestamp({end_unix}))
                 ) 
-                GROUP BY symbol, year_bucket
+                GROUP BY symbol, year_bucket, first_timestamp
                 ORDER BY year_bucket ASC
             """
+            
+            logger.debug(
+                f"Executing yearly aggregated DuckDB query",
+                extra={
+                    "symbol": symbol,
+                    "paths_count": len(s3_paths),
+                    "interval_seconds": interval_seconds,
+                    "query_type": "yearly_calendar_aggregated",
+                    "uses_actual_timestamps": True
+                }
+            )
         else:
             # Existing logic for other timeframes (minutes, hours, days, weeks, months)
             query = f"""
@@ -319,8 +331,8 @@ class MarketDataRepository:
                     single_path_query = f"""
                         SELECT 
                             symbol,
-                            to_timestamp(CONCAT(year_bucket, '-01-01 00:00:00')) as timestamp,
-                            EXTRACT(EPOCH FROM to_timestamp(CONCAT(year_bucket, '-01-01 00:00:00'))) as unix_time,
+                            to_timestamp(first_timestamp) as timestamp,
+                            first_timestamp as unix_time,
                             first(open ORDER BY unix_time) as open,
                             max(high) as high,
                             min(low) as low,
@@ -332,13 +344,14 @@ class MarketDataRepository:
                                 timestamp,
                                 unix_time,
                                 open, high, low, close, volume,
-                                EXTRACT(YEAR FROM to_timestamp(unix_time)) as year_bucket
+                                EXTRACT(YEAR FROM to_timestamp(unix_time)) as year_bucket,
+                                min(unix_time) OVER (PARTITION BY EXTRACT(YEAR FROM to_timestamp(unix_time))) as first_timestamp
                             FROM read_parquet(['{path}'])
                             WHERE symbol = '{symbol}'
                                 AND unix_time >= {start_unix}
                                 AND unix_time <= {end_unix}
                         ) 
-                        GROUP BY symbol, year_bucket
+                        GROUP BY symbol, year_bucket, first_timestamp
                         ORDER BY year_bucket ASC
                     """
                 else:
