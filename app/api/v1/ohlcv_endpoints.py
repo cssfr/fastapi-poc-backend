@@ -9,6 +9,7 @@ from app.services.market_data_service import MarketDataService
 from app.services.storage_service import StorageService
 from app.services.instrument_service import InstrumentService
 from app.infrastructure.cache import market_data_cache
+from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -51,26 +52,10 @@ async def get_available_symbols(request: Request, user_id: str = Depends(verify_
     
     return symbols
 
-@router.get("/timeframes", response_model=List[str])
-async def get_available_timeframes(request: Request, user_id: str = Depends(verify_token)):
-    """Get all available timeframes"""
-    logger.info(
-        "Fetching available timeframes",
-        extra={"request_id": getattr(request.state, "request_id", "unknown")}
-    )
-    
-    # Return supported timeframes (static list) - Add 1Y support
-    timeframes = ["1m", "5m", "15m", "30m", "1h", "4h", "1d", "1w", "1M", "1Y"]
-    
-    logger.info(
-        f"Found {len(timeframes)} timeframes",
-        extra={
-            "timeframe_count": len(timeframes),
-            "request_id": getattr(request.state, "request_id", "unknown")
-        }
-    )
-    
-    return timeframes
+@router.get("/timeframes")
+async def get_supported_timeframes():
+    """Get supported timeframes from centralized config"""
+    return {"timeframes": settings.supported_timeframes}
 
 @router.get("/date-range/{symbol}")
 async def get_symbol_date_range(
@@ -129,7 +114,7 @@ async def get_ohlcv_data_get(
     symbol: str = Query(..., description="Trading symbol"),
     start_date: str = Query(..., description="Start date (YYYY-MM-DD)"),
     end_date: str = Query(..., description="End date (YYYY-MM-DD)"),
-    timeframe: str = Query("1d", pattern="^(1m|5m|15m|30m|1h|4h|1d|1w|1M|1Y)$", description="Timeframe"),
+    timeframe: str = Query("1d", description="Timeframe"),
     source_resolution: str = Query("1Y", description="Source resolution (1m or 1Y)"),
     user_id: str = Depends(verify_token)
 ):

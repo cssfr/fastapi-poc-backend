@@ -57,26 +57,13 @@ class MarketDataService:
             return self._build_daily_paths(symbol, start_date, end_date, source_resolution)
     
     def _get_interval_seconds(self, timeframe: str) -> int:
-        """Get interval in seconds for a given timeframe"""
-        interval_mapping = {
-            "1m": 60,         # 1 minute
-            "5m": 300,        # 5 minutes
-            "15m": 900,       # 15 minutes  
-            "30m": 1800,      # 30 minutes
-            "1h": 3600,       # 1 hour
-            "4h": 14400,      # 4 hours
-            "1d": 86400,      # 1 day
-            "1w": 604800,     # 1 week
-            "1M": 2592000,    # 1 month (30 days)
-            "1Y": 31536000    # 1 year (365 days)
-        }
-        return interval_mapping.get(timeframe, 86400)  # Default to 1 day
+        """Get interval in seconds using centralized config"""
+        return settings.timeframe_intervals.get(timeframe, 86400)
     
     def _validate_timeframe(self, timeframe: str):
-        """Validate that timeframe is supported"""
-        valid_timeframes = ["1m", "5m", "15m", "30m", "1h", "4h", "1d", "1w", "1M", "1Y"]
-        if timeframe not in valid_timeframes:
-            raise ValueError(f"Invalid timeframe: {timeframe}. Must be one of: {valid_timeframes}")
+        """Validate timeframe using centralized config"""
+        if timeframe not in settings.supported_timeframes:
+            raise ValueError(f"Invalid timeframe: {timeframe}. Must be one of: {settings.supported_timeframes}")
     
     def _validate_source_resolution(self, source_resolution: str):
         """Validate that source resolution is supported"""
@@ -85,21 +72,13 @@ class MarketDataService:
             raise ValueError(f"Invalid source resolution: {source_resolution}. Must be one of: {valid_resolutions}")
     
     def _estimate_record_count(self, start_date: date, end_date: date, timeframe: str) -> int:
-        """Estimate the number of records for a given request for smarter validation"""
+        """Estimate records - business logic stays in service"""
         days_requested = (end_date - start_date).days
         
-        # Records per day by timeframe
+        # Business logic for record estimation
         records_per_day = {
-            "1m": 1440,      # 1-minute data: 24 * 60 minutes
-            "5m": 288,       # 5-minute data: 24 * 12 intervals
-            "15m": 96,       # 15-minute data: 24 * 4 intervals 
-            "30m": 48,       # 30-minute data: 24 * 2 intervals
-            "1h": 24,        # 1-hour data: 24 hours
-            "4h": 6,         # 4-hour data: 24 / 4 hours
-            "1d": 1,         # 1-day data: 1 per day
-            "1w": 0.143,     # 1-week data: 1/7 days
-            "1M": 0.033,     # 1-month data: 1/30 days
-            "1Y": 0.0027,    # 1-year data: 1/365 days
+            "1m": 1440, "3m": 480, "5m": 288, "10m": 144, "15m": 96, "30m": 48,
+            "1h": 24, "4h": 6, "1d": 1, "1w": 0.143, "1M": 0.033, "1Y": 0.0027
         }
         
         daily_records = records_per_day.get(timeframe, 1)
@@ -118,7 +97,7 @@ class MarketDataService:
         return estimated_records
 
     def _validate_request_size(self, start_date: date, end_date: date, timeframe: str):
-        """Enhanced validation with both day limits and record estimation"""
+        """Validate using centralized limits"""
         days_requested = (end_date - start_date).days
         estimated_records = self._estimate_record_count(start_date, end_date, timeframe)
         
@@ -136,7 +115,7 @@ class MarketDataService:
             )
             raise OHLCVRequestTooLargeError(timeframe, days_requested, settings.max_records_per_request, estimated_records)
         
-        # Check day limits - Fixed: handle both 1M and 1Y case properly  
+        # Use centralized day limits
         timeframe_key = timeframe if timeframe in ["1M", "1Y"] else timeframe.lower()
         max_days = settings.max_days_by_timeframe.get(timeframe_key, 365)
         
@@ -166,19 +145,19 @@ class MarketDataService:
         )
     
     def _auto_adjust_timeframe(self, start_date: date, end_date: date, timeframe: str) -> str:
-        """Auto-adjust timeframe for large date ranges to improve performance"""
+        """Auto-adjust timeframe - updated with new timeframes"""
         if not settings.auto_adjust_timeframe:
             return timeframe
             
         days_requested = (end_date - start_date).days
         original_timeframe = timeframe
         
-        # Apply auto-adjustment rules based on date range
-        if days_requested > settings.auto_adjust_thresholds["to_1d"] and timeframe in ["1m", "5m", "15m", "30m", "1h"]:
+        # Updated lists with 3m and 10m
+        if days_requested > settings.auto_adjust_thresholds["to_1d"] and timeframe in ["1m", "3m", "5m", "10m", "15m", "30m", "1h"]:
             timeframe = "1d"
-        elif days_requested > settings.auto_adjust_thresholds["to_1h"] and timeframe in ["1m", "5m", "15m"]:
+        elif days_requested > settings.auto_adjust_thresholds["to_1h"] and timeframe in ["1m", "3m", "5m", "10m", "15m"]:
             timeframe = "1h"
-        elif days_requested > settings.auto_adjust_thresholds["to_15m"] and timeframe == "1m":
+        elif days_requested > settings.auto_adjust_thresholds["to_15m"] and timeframe in ["1m", "3m", "5m", "10m"]:
             timeframe = "15m"
         
         if timeframe != original_timeframe:
