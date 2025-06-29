@@ -160,10 +160,10 @@ async def _get_ohlcv_data_internal(request: Request, ohlcv_request: OHLCVRequest
     )
     
     # Validate request
-    if ohlcv_request.start_date >= ohlcv_request.end_date:
+    if ohlcv_request.start_date > ohlcv_request.end_date:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Start date must be before end date"
+            detail="Start date must not be after end date"
         )
     
     # Create services with dependency injection
