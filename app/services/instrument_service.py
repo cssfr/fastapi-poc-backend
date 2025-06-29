@@ -2,7 +2,7 @@
 import json
 import logging
 from typing import Dict, Any, Optional, Tuple
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timezone, timedelta
 from app.models_ohlcv import InstrumentMetadata, DataRange
 from app.minio_client import minio_client
 from app.core.config import settings
@@ -186,6 +186,9 @@ class InstrumentService:
                         source_resolution: str = "1Y") -> Tuple[date, date]:
         """Bound requested date range to available data bounds
         
+        When requested range is completely outside available data, automatically
+        adjusts to the closest valid range within bounds.
+        
         Args:
             symbol: Trading symbol
             start_date: Requested start date
@@ -194,9 +197,6 @@ class InstrumentService:
             
         Returns:
             Tuple of (bounded_start_date, bounded_end_date)
-            
-        Raises:
-            ValueError: When the requested date range is completely outside available data
         """
         data_range = await self.get_data_range(symbol, source_resolution)
         if not data_range:
@@ -207,41 +207,61 @@ class InstrumentService:
         available_start_date = date.fromisoformat(available_start)
         available_end_date = date.fromisoformat(available_end)
         
-        # Check if requested range is completely outside available data
+        # Calculate requested period length for fallback scenarios
+        requested_days = (end_date - start_date).days
+        
+        # Handle case where requested range is completely after available data
         if start_date > available_end_date:
-            logger.error(
-                f"Requested start date {start_date} is after available data ends {available_end_date}",
+            # Default to recent period of same length, or last 30 days if shorter
+            period_days = max(requested_days, 30)
+            bounded_end = available_end_date
+            bounded_start = max(available_start_date, available_end_date - timedelta(days=period_days))
+            
+            logger.warning(
+                f"Requested range is after available data - auto-adjusted to recent period",
                 extra={
                     "symbol": symbol,
                     "requested_start": start_date.isoformat(),
                     "requested_end": end_date.isoformat(),
                     "available_start": available_start,
-                    "available_end": available_end
+                    "available_end": available_end,
+                    "adjusted_start": bounded_start.isoformat(),
+                    "adjusted_end": bounded_end.isoformat(),
+                    "adjustment_reason": "requested_after_available"
                 }
             )
-            raise ValueError(f"No data available for {symbol}: requested start date {start_date} is after available data ends on {available_end_date}")
+            return bounded_start, bounded_end
         
+        # Handle case where requested range is completely before available data
         if end_date < available_start_date:
-            logger.error(
-                f"Requested end date {end_date} is before available data starts {available_start_date}",
+            # Default to early period of same length, or first 30 days if shorter
+            period_days = max(requested_days, 30)
+            bounded_start = available_start_date
+            bounded_end = min(available_end_date, available_start_date + timedelta(days=period_days))
+            
+            logger.warning(
+                f"Requested range is before available data - auto-adjusted to early period",
                 extra={
                     "symbol": symbol,
                     "requested_start": start_date.isoformat(),
                     "requested_end": end_date.isoformat(),
                     "available_start": available_start,
-                    "available_end": available_end
+                    "available_end": available_end,
+                    "adjusted_start": bounded_start.isoformat(),
+                    "adjusted_end": bounded_end.isoformat(),
+                    "adjustment_reason": "requested_before_available"
                 }
             )
-            raise ValueError(f"No data available for {symbol}: requested end date {end_date} is before available data starts on {available_start_date}")
+            return bounded_start, bounded_end
         
-        # Bound the dates to available range
+        # Normal case: requested range overlaps with available data
         bounded_start = max(start_date, available_start_date)  # Don't go before available start
         bounded_end = min(end_date, available_end_date)        # Don't go after available end
         
-        # Log the bounding operation
+        # Log the bounding operation if any adjustment was made
         if bounded_start != start_date or bounded_end != end_date:
             logger.info(
-                f"Date range adjusted for {symbol}",
+                f"Date range adjusted to available bounds",
                 extra={
                     "symbol": symbol,
                     "requested_start": start_date.isoformat(),
@@ -249,7 +269,8 @@ class InstrumentService:
                     "bounded_start": bounded_start.isoformat(),
                     "bounded_end": bounded_end.isoformat(),
                     "available_start": available_start,
-                    "available_end": available_end
+                    "available_end": available_end,
+                    "adjustment_reason": "partial_overlap"
                 }
             )
         
