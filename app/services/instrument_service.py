@@ -14,30 +14,38 @@ logger = logging.getLogger(__name__)
 class InstrumentService:
     """Service for managing instrument metadata and data range validation"""
     
+    # Class-level cache for instruments data - shared across all instances
+    _global_instruments_data: Optional[Dict[str, Any]] = None
+    _data_loaded: bool = False
+    
     def __init__(self, minio_client_instance=None, repository: MarketDataRepository = None):
         self.minio_client = minio_client_instance or minio_client
         self.repository = repository or MarketDataRepository(duckdb_adapter.conn)
-        self._instruments_data: Optional[Dict[str, Any]] = None
-        self._load_instruments()
+        
+        # Load instruments data only once globally
+        if not InstrumentService._data_loaded:
+            self._load_instruments()
     
     def _load_instruments(self):
-        """Load instruments metadata from MinIO bucket"""
+        """Load instruments metadata from MinIO bucket - only once per application lifecycle"""
         try:
             # Get the HTTPResponse object from MinIO
             response = self.minio_client.get_object(settings.minio_bucket, "metadata/instruments.json")
             # Read the content from the HTTPResponse and decode it
             content = response.read().decode('utf-8')
             # Parse the JSON content
-            self._instruments_data = json.loads(content)
+            InstrumentService._global_instruments_data = json.loads(content)
+            InstrumentService._data_loaded = True
             
             # Log success with proper context
-            instrument_count = len([k for k in self._instruments_data.keys() if not k.startswith('_')])
+            instrument_count = len([k for k in InstrumentService._global_instruments_data.keys() if not k.startswith('_')])
             logger.info(
                 f"Successfully loaded instruments metadata from MinIO", 
                 extra={
                     "bucket": settings.minio_bucket,
                     "instrument_count": instrument_count,
-                    "metadata_keys": [k for k in self._instruments_data.keys() if k.startswith('_')]
+                    "metadata_keys": [k for k in InstrumentService._global_instruments_data.keys() if k.startswith('_')],
+                    "cached_globally": True
                 }
             )
         except json.JSONDecodeError as e:
@@ -46,18 +54,34 @@ class InstrumentService:
                 extra={"bucket": settings.minio_bucket, "error": str(e)},
                 exc_info=True
             )
-            self._instruments_data = {}
+            InstrumentService._global_instruments_data = {}
+            InstrumentService._data_loaded = True
         except Exception as e:
             logger.warning(
                 f"Failed to load instruments from MinIO: {e}. Will fall back to scanning actual data when needed.",
                 extra={"bucket": settings.minio_bucket},
                 exc_info=True
             )
-            self._instruments_data = {}
+            InstrumentService._global_instruments_data = {}
+            InstrumentService._data_loaded = True
     
-    def reload_instruments(self):
-        """Reload instruments data from MinIO"""
-        self._load_instruments()
+    @property
+    def _instruments_data(self) -> Optional[Dict[str, Any]]:
+        """Property to access the global instruments data"""
+        return InstrumentService._global_instruments_data
+    
+    @classmethod
+    def reload_instruments(cls):
+        """Reload instruments data from MinIO - force refresh of cache"""
+        cls._data_loaded = False
+        # Create a temporary instance to trigger reload
+        temp_service = cls()
+        logger.info("Instruments metadata reloaded from MinIO")
+    
+    @classmethod 
+    def is_data_loaded(cls) -> bool:
+        """Check if instruments data has been loaded"""
+        return cls._data_loaded and cls._global_instruments_data is not None
     
     async def _scan_actual_data_range(self, symbol: str, source_resolution: str = "1Y") -> Optional[Tuple[str, str]]:
         """Scan actual parquet data to find earliest and latest dates available

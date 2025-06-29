@@ -20,6 +20,16 @@ router = APIRouter(
     # Remove router-level auth to allow OPTIONS preflight requests
 )
 
+# Create a global instrument service instance (singleton pattern)
+_global_instrument_service = None
+
+def get_instrument_service() -> InstrumentService:
+    """Get or create the global instrument service instance"""
+    global _global_instrument_service
+    if _global_instrument_service is None:
+        _global_instrument_service = InstrumentService()
+    return _global_instrument_service
+
 @router.get("/symbols", response_model=List[str])
 async def get_available_symbols(request: Request, user_id: str = Depends(verify_token)):
     """Get all available symbols in the dataset"""
@@ -166,8 +176,8 @@ async def _get_ohlcv_data_internal(request: Request, ohlcv_request: OHLCVRequest
             detail="Start date must not be after end date"
         )
     
-    # Create services with dependency injection
-    instrument_service = InstrumentService()
+    # Use shared instrument service instance
+    instrument_service = get_instrument_service()
     market_data_service = MarketDataService(instrument_service=instrument_service)
     
     # Get data from market data service
