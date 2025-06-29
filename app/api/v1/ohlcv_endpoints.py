@@ -7,12 +7,12 @@ from app.auth import verify_token
 from app.models_ohlcv import OHLCVRequest, OHLCVResponse, OHLCVData
 from app.services.market_data_service import MarketDataService
 from app.services.storage_service import StorageService
+from app.services.instrument_service import InstrumentService
 from app.infrastructure.cache import market_data_cache
 
 logger = logging.getLogger(__name__)
 
-# Create market data service instance
-market_data_service = MarketDataService()
+# Services will be created with dependency injection in each endpoint
 
 router = APIRouter(
     prefix="/api/v1/ohlcv",
@@ -23,109 +23,95 @@ router = APIRouter(
 @router.get("/symbols", response_model=List[str])
 async def get_available_symbols(request: Request, user_id: str = Depends(verify_token)):
     """Get all available symbols in the dataset"""
-    try:
-        logger.info(
-            "Fetching available symbols",
-            extra={"request_id": getattr(request.state, "request_id", "unknown")}
-        )
-        
-        symbols = await market_data_service.get_available_symbols()
-        
-        logger.info(
-            f"Found {len(symbols)} symbols",
-            extra={
-                "symbol_count": len(symbols),
-                "request_id": getattr(request.state, "request_id", "unknown")
-            }
-        )
-        
-        return symbols
-        
-    except Exception as e:
-        logger.error(f"Error fetching symbols: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to fetch available symbols"
-        )
+    logger.info(
+        "Fetching available symbols",
+        extra={"request_id": getattr(request.state, "request_id", "unknown")}
+    )
+    
+    market_data_service = MarketDataService()
+    symbols = await market_data_service.get_available_symbols()
+    
+    logger.info(
+        f"Found {len(symbols)} symbols",
+        extra={
+            "symbol_count": len(symbols),
+            "request_id": getattr(request.state, "request_id", "unknown")
+        }
+    )
+    
+    return symbols
 
 @router.get("/timeframes", response_model=List[str])
 async def get_available_timeframes(request: Request, user_id: str = Depends(verify_token)):
     """Get all available timeframes"""
-    try:
-        logger.info(
-            "Fetching available timeframes",
-            extra={"request_id": getattr(request.state, "request_id", "unknown")}
-        )
-        
-        # Return supported timeframes (static list)
-        timeframes = ["1m", "5m", "15m", "30m", "1h", "4h", "1d", "1w"]
-        
-        logger.info(
-            f"Found {len(timeframes)} timeframes",
-            extra={
-                "timeframe_count": len(timeframes),
-                "request_id": getattr(request.state, "request_id", "unknown")
-            }
-        )
-        
-        return timeframes
-        
-    except Exception as e:
-        logger.error(f"Error fetching timeframes: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to fetch available timeframes"
-        )
+    logger.info(
+        "Fetching available timeframes",
+        extra={"request_id": getattr(request.state, "request_id", "unknown")}
+    )
+    
+    # Return supported timeframes (static list)
+    timeframes = ["1m", "5m", "15m", "30m", "1h", "4h", "1d", "1w"]
+    
+    logger.info(
+        f"Found {len(timeframes)} timeframes",
+        extra={
+            "timeframe_count": len(timeframes),
+            "request_id": getattr(request.state, "request_id", "unknown")
+        }
+    )
+    
+    return timeframes
 
 @router.get("/date-range/{symbol}")
 async def get_symbol_date_range(
     request: Request,
     symbol: str,
     timeframe: str = Query(..., description="Timeframe (e.g., '1m', '5m', '1h', '1d')"),
+    source_resolution: str = Query("1Y", description="Source resolution (1m or 1Y)"),
     user_id: str = Depends(verify_token)
 ):
     """Get the available date range for a specific symbol and timeframe"""
-    try:
-        logger.info(
-            f"Fetching date range for symbol: {symbol}, timeframe: {timeframe}",
+    logger.info(
+        f"Fetching date range for symbol: {symbol}, timeframe: {timeframe}",
+        extra={
+            "symbol": symbol,
+            "timeframe": timeframe,
+            "request_id": getattr(request.state, "request_id", "unknown")
+        }
+    )
+    
+    # Create services with dependency injection
+    instrument_service = InstrumentService()
+    market_data_service = MarketDataService(instrument_service=instrument_service)
+    
+    # NEW: Get date range from instruments metadata first
+    data_range_tuple = await instrument_service.get_data_range(symbol, source_resolution)
+    if data_range_tuple:
+        earliest, latest = data_range_tuple
+        date_range = {"earliest": earliest, "latest": latest}
+    else:
+        # Fallback to existing method if no metadata available
+        dates = await market_data_service.get_available_dates(symbol, source_resolution)
+        if dates:
+            date_range = {"earliest": dates[0], "latest": dates[-1]}
+        else:
+            date_range = None
+    
+    if not date_range:
+        logger.warning(
+            f"No data found for symbol: {symbol}, timeframe: {timeframe}",
             extra={
                 "symbol": symbol,
                 "timeframe": timeframe,
                 "request_id": getattr(request.state, "request_id", "unknown")
             }
         )
-        
-        # Get available dates for the symbol
-        dates = await market_data_service.get_available_dates(symbol, "1Y")  # Use 1Y as default
-        if dates:
-            date_range = {"earliest": dates[0], "latest": dates[-1]}
-        else:
-            date_range = None
-        
-        if not date_range:
-            logger.warning(
-                f"No data found for symbol: {symbol}, timeframe: {timeframe}",
-                extra={
-                    "symbol": symbol,
-                    "timeframe": timeframe,
-                    "request_id": getattr(request.state, "request_id", "unknown")
-                }
-            )
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"No data found for symbol {symbol} with timeframe {timeframe}"
-            )
-        
-        return date_range
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error fetching date range for {symbol}: {e}")
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to fetch date range"
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"No data found for symbol {symbol} with timeframe {timeframe}"
         )
+    
+    return date_range
 
 @router.get("/data", response_model=OHLCVResponse)
 async def get_ohlcv_data_get(
@@ -138,34 +124,27 @@ async def get_ohlcv_data_get(
     user_id: str = Depends(verify_token)
 ):
     """Get OHLCV data using GET with query parameters"""
+    # Parse dates and create OHLCVRequest object for validation
     try:
-        # Parse dates and create OHLCVRequest object for validation
         parsed_start_date = date.fromisoformat(start_date)
         parsed_end_date = date.fromisoformat(end_date)
-        
-        # Create request object to reuse validation logic
-        ohlcv_request = OHLCVRequest(
-            symbol=symbol,
-            start_date=parsed_start_date,
-            end_date=parsed_end_date,
-            timeframe=timeframe,
-            source_resolution=source_resolution
-        )
-        
-        # Use common internal logic
-        return await _get_ohlcv_data_internal(request, ohlcv_request)
-        
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Invalid date format: {str(e)}"
         )
-    except Exception as e:
-        logger.error(f"Error in GET /data endpoint: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to retrieve OHLCV data"
-        )
+    
+    # Create request object to reuse validation logic
+    ohlcv_request = OHLCVRequest(
+        symbol=symbol,
+        start_date=parsed_start_date,
+        end_date=parsed_end_date,
+        timeframe=timeframe,
+        source_resolution=source_resolution
+    )
+    
+    # Use common internal logic
+    return await _get_ohlcv_data_internal(request, ohlcv_request)
 
 async def _get_ohlcv_data_internal(request: Request, ohlcv_request: OHLCVRequest) -> OHLCVResponse:
     """Internal method for getting OHLCV data - used by both GET and POST endpoints"""
@@ -186,6 +165,10 @@ async def _get_ohlcv_data_internal(request: Request, ohlcv_request: OHLCVRequest
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Start date must be before end date"
         )
+    
+    # Create services with dependency injection
+    instrument_service = InstrumentService()
+    market_data_service = MarketDataService(instrument_service=instrument_service)
     
     # Get data from market data service
     data = await market_data_service.get_ohlcv_data(
@@ -252,79 +235,63 @@ async def _get_ohlcv_data_internal(request: Request, ohlcv_request: OHLCVRequest
 @router.post("/data", response_model=OHLCVResponse)
 async def get_ohlcv_data_post(request: Request, ohlcv_request: OHLCVRequest, user_id: str = Depends(verify_token)):
     """Get OHLCV data for specified parameters using POST with request body"""
-    try:
-        return await _get_ohlcv_data_internal(request, ohlcv_request)
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error retrieving OHLCV data: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to retrieve OHLCV data"
-        )
+    return await _get_ohlcv_data_internal(request, ohlcv_request)
 
-@router.get("/metadata/{symbol}")
-async def get_symbol_metadata(request: Request, symbol: str, user_id: str = Depends(verify_token)):
-    """Get metadata for a specific symbol"""
-    try:
-        logger.info(
-            f"Fetching metadata for symbol: {symbol}",
+@router.get("/instruments")
+async def get_instruments_metadata(request: Request, user_id: str = Depends(verify_token)):
+    """Get metadata for all available instruments including data ranges"""
+    logger.info(
+        "Fetching instruments metadata",
+        extra={"request_id": getattr(request.state, "request_id", "unknown")}
+    )
+    
+    instrument_service = InstrumentService()
+    instruments_metadata = await instrument_service.get_instruments_metadata()
+    
+    return {
+        "count": len(instruments_metadata),
+        "instruments": list(instruments_metadata.values()),
+        "lastUpdated": instrument_service._instruments_data.get("_updated", "unknown") if instrument_service._instruments_data else "unknown"
+    }
+
+@router.get("/instruments/{symbol}")
+async def get_instrument_metadata(request: Request, symbol: str, user_id: str = Depends(verify_token)):
+    """Get metadata for a specific instrument"""
+    logger.info(
+        f"Fetching metadata for symbol: {symbol}",
+        extra={
+            "symbol": symbol,
+            "request_id": getattr(request.state, "request_id", "unknown")
+        }
+    )
+    
+    instrument_service = InstrumentService()
+    metadata = instrument_service.get_instrument_metadata(symbol)
+    
+    if not metadata:
+        logger.warning(
+            f"No metadata found for symbol: {symbol}",
             extra={
                 "symbol": symbol,
                 "request_id": getattr(request.state, "request_id", "unknown")
             }
         )
-        
-        # Basic metadata - this method doesn't exist in original service
-        # Return basic symbol information
-        metadata = {
-            "symbol": symbol,
-            "available_timeframes": ["1m", "5m", "15m", "30m", "1h", "4h", "1d", "1w"],
-            "source_resolutions": ["1m", "1Y"]
-        }
-        
-        if not metadata:
-            logger.warning(
-                f"No metadata found for symbol: {symbol}",
-                extra={
-                    "symbol": symbol,
-                    "request_id": getattr(request.state, "request_id", "unknown")
-                }
-            )
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"No metadata found for symbol {symbol}"
-            )
-        
-        return metadata
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error fetching metadata for {symbol}: {e}")
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to fetch symbol metadata"
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"No metadata found for symbol {symbol}"
         )
+    
+    return metadata
 
 @router.get("/cache/clear")
 async def clear_cache(request: Request, user_id: str = Depends(verify_token)):
     """Clear the OHLCV data cache"""
-    try:
-        logger.info(
-            "Clearing OHLCV cache",
-            extra={"request_id": getattr(request.state, "request_id", "unknown")}
-        )
-        
-        # Clear market data cache using new infrastructure
-        market_data_cache._memory_cache.clear()  # Clear in-memory cache
-        
-        return {"message": "Cache cleared successfully"}
-        
-    except Exception as e:
-        logger.error(f"Error clearing cache: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to clear cache"
-        ) 
+    logger.info(
+        "Clearing OHLCV cache",
+        extra={"request_id": getattr(request.state, "request_id", "unknown")}
+    )
+    
+    # Clear market data cache using new infrastructure
+    market_data_cache._memory_cache.clear()  # Clear in-memory cache
+    
+    return {"message": "Cache cleared successfully"} 

@@ -7,14 +7,16 @@ from app.infrastructure.cache import market_data_cache
 from app.infrastructure.performance_monitor import performance_monitor
 from app.repositories.market_data_repository import MarketDataRepository
 from app.minio_client import MinIOService, MINIO_BUCKET
+from app.services.instrument_service import InstrumentService
 
 logger = logging.getLogger(__name__)
 
 class MarketDataService:
     """Service for OHLCV data business logic, timeframe aggregations, and data validation"""
     
-    def __init__(self, repository: MarketDataRepository = None):
+    def __init__(self, repository: MarketDataRepository = None, instrument_service: InstrumentService = None):
         self.repository = repository or MarketDataRepository(duckdb_adapter.conn)
+        self.instrument_service = instrument_service or InstrumentService()
     
     def _build_daily_paths(self, symbol: str, start_date: date, end_date: date, source_resolution: str = "1m") -> List[str]:
         """Build list of S3 paths for daily files (original 1m structure)"""
@@ -106,18 +108,31 @@ class MarketDataService:
         if start_date > end_date:
             raise ValueError("Start date must be before or equal to end date")
         
+        # BUSINESS LOGIC: Bound date range to available data (stays in service layer)
+        bounded_start, bounded_end = await self.instrument_service.bound_date_range(
+            symbol, start_date, end_date, source_resolution
+        )
+        
+        # Log if dates were adjusted
+        if bounded_start != start_date or bounded_end != end_date:
+            logger.info(
+                f"Date range bounded for {symbol}: "
+                f"requested [{start_date} to {end_date}] -> "
+                f"bounded [{bounded_start} to {bounded_end}]"
+            )
+        
         if not MinIOService.is_available():
             raise RuntimeError("MinIO service not available")
         
-        # Build paths based on source resolution
-        s3_paths = self._build_s3_paths(symbol, start_date, end_date, source_resolution)
+        # Use bounded dates for data retrieval
+        s3_paths = self._build_s3_paths(symbol, bounded_start, bounded_end, source_resolution)
         
         if not s3_paths:
-            raise ValueError(f"No data paths generated for symbol {symbol} between {start_date} and {end_date}")
+            raise ValueError(f"No data paths generated for symbol {symbol} between {bounded_start} and {bounded_end}")
         
-        # Convert dates to unix timestamps for filtering (UTC)
-        start_unix = int(datetime.combine(start_date, datetime.min.time()).replace(tzinfo=timezone.utc).timestamp())
-        end_unix = int(datetime.combine(end_date, datetime.max.time()).replace(tzinfo=timezone.utc).timestamp())
+        # Convert bounded dates to unix timestamps for filtering (UTC)
+        start_unix = int(datetime.combine(bounded_start, datetime.min.time()).replace(tzinfo=timezone.utc).timestamp())
+        end_unix = int(datetime.combine(bounded_end, datetime.max.time()).replace(tzinfo=timezone.utc).timestamp())
         
         # Check cache first
         cached_data = await market_data_cache.get_market_data(symbol, timeframe, start_unix, end_unix)
