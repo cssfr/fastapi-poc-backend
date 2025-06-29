@@ -121,14 +121,6 @@ class InstrumentMetadata(BaseModel):
     sector: str = Field(..., description="Market sector/category")
     country: str = Field(..., description="Country code")
     dataRange: Optional[DataRange] = Field(None, description="Available data date range")
-    availableTimeframes: List[str] = Field(
-        default=["1m", "5m", "15m", "30m", "1h", "4h", "1d", "1w", "1M", "1Y"],
-        description="Available aggregation timeframes"
-    )
-    sourceResolutions: List[str] = Field(
-        default=["1m", "1Y"], 
-        description="Available source data resolutions"
-    )
 
 class InstrumentsResponse(BaseModel):
     """Response model for instruments metadata endpoint"""
