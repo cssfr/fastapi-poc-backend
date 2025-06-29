@@ -23,11 +23,36 @@ class InstrumentService:
     def _load_instruments(self):
         """Load instruments metadata from MinIO bucket"""
         try:
-            instruments_data = self.minio_client.get_object(settings.minio_bucket, "metadata/instruments.json")
-            self._instruments_data = json.loads(instruments_data)
-            logger.info(f"Loaded {len(self._instruments_data) - 4} instruments from MinIO bucket {settings.minio_bucket}")
+            # Get the HTTPResponse object from MinIO
+            response = self.minio_client.get_object(settings.minio_bucket, "metadata/instruments.json")
+            # Read the content from the HTTPResponse and decode it
+            content = response.read().decode('utf-8')
+            # Parse the JSON content
+            self._instruments_data = json.loads(content)
+            
+            # Log success with proper context
+            instrument_count = len([k for k in self._instruments_data.keys() if not k.startswith('_')])
+            logger.info(
+                f"Successfully loaded instruments metadata from MinIO", 
+                extra={
+                    "bucket": settings.minio_bucket,
+                    "instrument_count": instrument_count,
+                    "metadata_keys": [k for k in self._instruments_data.keys() if k.startswith('_')]
+                }
+            )
+        except json.JSONDecodeError as e:
+            logger.error(
+                f"Failed to parse instruments.json: Invalid JSON format", 
+                extra={"bucket": settings.minio_bucket, "error": str(e)},
+                exc_info=True
+            )
+            self._instruments_data = {}
         except Exception as e:
-            logger.warning(f"Failed to load instruments from MinIO: {e}. Will fall back to scanning actual data when needed.")
+            logger.warning(
+                f"Failed to load instruments from MinIO: {e}. Will fall back to scanning actual data when needed.",
+                extra={"bucket": settings.minio_bucket},
+                exc_info=True
+            )
             self._instruments_data = {}
     
     def reload_instruments(self):
