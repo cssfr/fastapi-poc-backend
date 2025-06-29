@@ -38,7 +38,7 @@ class Settings(BaseSettings):
         "1d": 3650,     # 1-day data: max 10 years
         "1w": 18250,    # 1-week data: max 50 years
         "1M": 36500,    # 1-month data: max 100 years
-        "1Y": 36500,    # 1-year data: max 100 years
+        "1Y": 7300,     # 20 years - ENSURE THIS EXISTS
     }
     
     # Auto-adjustment thresholds

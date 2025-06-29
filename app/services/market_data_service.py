@@ -136,8 +136,8 @@ class MarketDataService:
             )
             raise OHLCVRequestTooLargeError(timeframe, days_requested, settings.max_records_per_request, estimated_records)
         
-        # Check day limits - Fixed: handle 1M case properly
-        timeframe_key = timeframe if timeframe == "1M" else timeframe.lower()
+        # Check day limits - Fixed: handle both 1M and 1Y case properly  
+        timeframe_key = timeframe if timeframe in ["1M", "1Y"] else timeframe.lower()
         max_days = settings.max_days_by_timeframe.get(timeframe_key, 365)
         
         if days_requested > max_days:
