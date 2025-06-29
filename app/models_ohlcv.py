@@ -3,19 +3,27 @@ from pydantic import BaseModel, Field, validator
 from typing import List, Optional, Dict, Any
 from datetime import date, datetime
 from decimal import Decimal
+from app.core.config import settings
 
 class OHLCVRequest(BaseModel):
     """Request model for OHLCV data"""
     symbol: str = Field(..., min_length=1, max_length=20)
     start_date: date
     end_date: date
-    timeframe: str = Field(default="1d", pattern="^(1m|5m|15m|30m|1h|4h|1d|1w)$")
+    timeframe: str = Field(default="1d", description="Timeframe")
     source_resolution: str = Field(default="1Y", description="Source data resolution (1m or 1Y)")
     
     @validator('symbol')
     def normalize_symbol(cls, v):
         """Normalize symbol to uppercase"""
         return v.upper().strip()
+    
+    @validator('timeframe')
+    def validate_timeframe_support(cls, v):
+        """Validate timeframe using centralized config"""
+        if v not in settings.supported_timeframes:
+            raise ValueError(f"Invalid timeframe: {v}. Must be one of: {settings.supported_timeframes}")
+        return v
     
     @validator('source_resolution')
     def validate_source_resolution(cls, v):
@@ -114,7 +122,7 @@ class InstrumentMetadata(BaseModel):
     country: str = Field(..., description="Country code")
     dataRange: Optional[DataRange] = Field(None, description="Available data date range")
     availableTimeframes: List[str] = Field(
-        default=["1m", "5m", "15m", "30m", "1h", "4h", "1d", "1w"],
+        default=["1m", "5m", "15m", "30m", "1h", "4h", "1d", "1w", "1M", "1Y"],
         description="Available aggregation timeframes"
     )
     sourceResolutions: List[str] = Field(

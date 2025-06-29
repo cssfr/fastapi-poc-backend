@@ -3,11 +3,12 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import jwt, JWTError
 import os
 from typing import Dict, Any
+from app.core.config import settings
 
 security = HTTPBearer()
 
-SUPABASE_URL = os.getenv("SUPABASE_URL")
-JWT_SECRET = os.getenv("SUPABASE_JWT_SECRET")
+SUPABASE_URL = settings.supabase_url
+JWT_SECRET = settings.supabase_jwt_secret
 
 if not JWT_SECRET or not SUPABASE_URL:
     raise RuntimeError("Missing SUPABASE_URL or SUPABASE_JWT_SECRET")

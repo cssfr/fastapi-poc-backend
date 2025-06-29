@@ -7,15 +7,16 @@ from typing import List, Optional
 from datetime import datetime
 import json
 from io import BytesIO
+from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
 # MinIO configuration from environment
-MINIO_ENDPOINT = os.getenv("MINIO_ENDPOINT", "localhost:9000")
-MINIO_ACCESS_KEY = os.getenv("MINIO_ACCESS_KEY")
-MINIO_SECRET_KEY = os.getenv("MINIO_SECRET_KEY")
-MINIO_SECURE = os.getenv("MINIO_SECURE", "false").lower() == "true"
-MINIO_BUCKET = os.getenv("MINIO_BUCKET", "dukascopy-node")
+MINIO_ENDPOINT = settings.minio_endpoint or "localhost:9000"
+MINIO_ACCESS_KEY = settings.minio_access_key
+MINIO_SECRET_KEY = settings.minio_secret_key
+MINIO_SECURE = settings.minio_secure
+MINIO_BUCKET = settings.minio_bucket
 
 if not MINIO_ACCESS_KEY or not MINIO_SECRET_KEY:
     logger.warning("MinIO credentials not configured. MinIO features will be disabled.")
@@ -42,18 +43,7 @@ class MinIOService:
         """Check if MinIO is configured and available"""
         return minio_client is not None
     
-    @staticmethod
-    async def list_buckets() -> List[str]:
-        """List all available buckets"""
-        if not minio_client:
-            raise RuntimeError("MinIO client not configured")
-        
-        try:
-            buckets = minio_client.list_buckets()
-            return [bucket.name for bucket in buckets]
-        except S3Error as e:
-            logger.error(f"Failed to list buckets: {e}")
-            raise
+    # list_buckets() method moved to StorageRepository - use StorageService instead
     
     @staticmethod
     async def list_objects(bucket_name: str = MINIO_BUCKET, prefix: str = "") -> List[dict]:
@@ -75,38 +65,9 @@ class MinIOService:
             logger.error(f"Failed to list objects: {e}")
             raise
     
-    @staticmethod
-    async def get_object_url(object_name: str, bucket_name: str = MINIO_BUCKET) -> str:
-        """Get a presigned URL for an object (valid for 1 hour)"""
-        if not minio_client:
-            raise RuntimeError("MinIO client not configured")
-        
-        try:
-            # Generate presigned URL valid for 1 hour
-            url = minio_client.presigned_get_object(
-                bucket_name,
-                object_name,
-                expires=3600
-            )
-            return url
-        except S3Error as e:
-            logger.error(f"Failed to generate presigned URL: {e}")
-            raise
+    # get_object_url() method moved to StorageRepository - use StorageService instead
     
-    @staticmethod
-    async def check_object_exists(object_name: str, bucket_name: str = MINIO_BUCKET) -> bool:
-        """Check if an object exists in the bucket"""
-        if not minio_client:
-            raise RuntimeError("MinIO client not configured")
-        
-        try:
-            minio_client.stat_object(bucket_name, object_name)
-            return True
-        except S3Error as e:
-            if e.code == "NoSuchKey":
-                return False
-            logger.error(f"Failed to check object existence: {e}")
-            raise
+    # check_object_exists() method moved to StorageRepository - use StorageService instead
     
     @staticmethod
     def get_object_stream(object_name: str, bucket_name: str = MINIO_BUCKET):

@@ -1,0 +1,448 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+# AI Coding Assistant Rules - FastAPI Backtesting Application
+
+## CRITICAL: Architecture Rules
+
+### ALWAYS follow this layer hierarchy:
+```
+API Layer (app/api/v1/) → Service Layer (app/services/) → Repository Layer (app/repositories/)
+```
+
+### NEVER violate these rules:
+- NEVER put SQL queries outside `app/repositories/`
+- NEVER use relative imports (`from ..` or `from .`)
+- NEVER put business logic in `app/api/v1/` endpoints
+- NEVER use `os.getenv()` outside `app/core/config.py`
+- NEVER catch exceptions in endpoints unless adding specific value
+
+## File Creation Templates
+
+### When creating a new endpoint file:
+```python
+"""[Domain] API endpoints"""
+from fastapi import APIRouter, Depends, HTTPException, status, Request
+from typing import List, Optional
+from app.services.[domain]_service import [Domain]Service
+from app.models import [Domain]Create, [Domain]Response, [Domain]Update
+from app.auth import verify_token
+import logging
+
+logger = logging.getLogger(__name__)
+
+router = APIRouter(
+    prefix="/api/v1/[domain]s",
+    tags=["[domain]s"],
+)
+
+@router.post("", response_model=[Domain]Response, status_code=status.HTTP_201_CREATED)
+async def create_[domain](
+    request: Request,
+    data: [Domain]Create,
+    user_id: str = Depends(verify_token)
+):
+    """Create a new [domain]"""
+    logger.info(
+        "Creating [domain]",
+        extra={
+            "user_id": user_id,
+            "request_id": getattr(request.state, "request_id", "unknown")
+        }
+    )
+    
+    service = [Domain]Service()
+    return await service.create_[domain](user_id, data)
+```
+
+### When creating a new service file:
+```python
+"""Service layer for [domain] business logic"""
+from typing import List, Optional
+from datetime import datetime
+import uuid
+import logging
+from app.database import db
+from app.models import [Domain]Create, [Domain]Response, [Domain]Update
+from app.repositories.[domain]_repository import [Domain]Repository
+from app.core.exceptions import [Domain]NotFoundException, [Domain]Exception
+
+logger = logging.getLogger(__name__)
+
+class [Domain]Service:
+    def __init__(self, repository: [Domain]Repository = None):
+        self.repository = repository or [Domain]Repository(db)
+    
+    async def create_[domain](self, user_id: str, data: [Domain]Create) -> [Domain]Response:
+        """Create a new [domain]"""
+        row = await self.repository.create(uuid.UUID(user_id), data.dict())
+        if not row:
+            raise [Domain]Exception("Failed to create [domain]")
+        return [Domain]Response(**row)
+```
+
+### When creating a new repository file:
+```python
+"""Repository layer for [domain] data access"""
+from typing import List, Optional, Dict, Any
+import uuid
+from app.repositories.base_repository import BaseRepository
+from app.database import db
+
+class [Domain]Repository(BaseRepository):
+    def _table_name(self) -> str:
+        return "[domain]s"
+    
+    def _entity_class(self) -> type:
+        return dict
+    
+    async def create(self, user_id: uuid.UUID, data: dict) -> Optional[Dict]:
+        """Create a new [domain]"""
+        query = """
+            INSERT INTO [domain]s (user_id, ...)
+            VALUES ($1, ...)
+            RETURNING *
+        """
+        return await self.db.fetch_one(query, user_id, ...)
+```
+
+## Import Rules
+
+### ALWAYS use this import pattern:
+```python
+# Standard library
+import os
+from datetime import datetime
+from typing import List, Optional
+
+# Third-party
+from fastapi import APIRouter, Depends
+import logging
+
+# Local application - ALWAYS absolute imports
+from app.database import db
+from app.services.user_service import UserService
+from app.models import UserResponse
+from app.core.exceptions import UserNotFoundException
+```
+
+### NEVER use these import patterns:
+```python
+# WRONG - Relative imports
+from ..services import UserService
+from .models import UserModel
+from ...core.config import settings
+
+# WRONG - Wildcard imports
+from app.models import *
+```
+
+## SQL Query Patterns
+
+### ALWAYS put SQL in repositories:
+```python
+# CORRECT - In repository file
+class BacktestRepository(BaseRepository):
+    async def get_by_user(self, user_id: uuid.UUID) -> List[Dict]:
+        query = """
+            SELECT * FROM backtests 
+            WHERE user_id = $1 
+            ORDER BY created_at DESC
+        """
+        return await self.db.fetch_all(query, user_id)
+```
+
+### NEVER put SQL in services or endpoints:
+```python
+# WRONG - SQL in service
+class BacktestService:
+    async def get_user_backtests(self, user_id: str):
+        query = "SELECT * FROM backtests WHERE user_id = $1"  # NO!
+        return await db.fetch_all(query, user_id)
+```
+
+## Transaction Patterns
+
+### For operations that modify multiple tables:
+```python
+async def create_with_update(self, conn, data: dict) -> Optional[Dict]:
+    """Use transaction for multi-table operations"""
+    async with db.transaction() as conn:
+        # Step 1
+        result1 = await db.fetch_one_in_transaction(conn, query1, params1)
+        
+        # Step 2
+        result2 = await db.execute_in_transaction(conn, query2, params2)
+        
+        return result1  # Transaction auto-commits
+```
+
+## Exception Handling Patterns
+
+### In services - THROW domain exceptions:
+```python
+# CORRECT
+if not backtest:
+    raise BacktestNotFoundException(backtest_id=backtest_id, user_id=user_id)
+
+if backtest['status'] != BacktestStatus.CREATED:
+    raise BacktestInvalidStateError(
+        backtest_id=backtest_id,
+        current_state=backtest['status'],
+        expected_states=[BacktestStatus.CREATED],
+        action="update"
+    )
+```
+
+### In endpoints - LET exceptions bubble up:
+```python
+# CORRECT - No try/except needed
+@router.get("/{id}")
+async def get_item(id: str, user_id: str = Depends(verify_token)):
+    return await service.get_item(user_id, id)
+
+# WRONG - Don't catch and re-raise
+@router.get("/{id}")
+async def get_item(id: str, user_id: str = Depends(verify_token)):
+    try:
+        return await service.get_item(user_id, id)
+    except Exception as e:  # NO!
+        logger.error(e)
+        raise HTTPException(status_code=500)
+```
+
+## Configuration Access
+
+### ALWAYS use settings object:
+```python
+# CORRECT
+from app.core.config import settings
+
+database_url = settings.database_url
+log_level = settings.log_level
+```
+
+### NEVER use os.getenv:
+```python
+# WRONG
+import os
+database_url = os.getenv("DATABASE_URL")  # NO!
+```
+
+## Logging Patterns
+
+### ALWAYS include context:
+```python
+logger.info(
+    "Creating backtest",
+    extra={
+        "user_id": user_id,
+        "backtest_name": data.name,
+        "request_id": getattr(request.state, "request_id", "unknown")
+    }
+)
+```
+
+### For errors, include exception info:
+```python
+logger.error(
+    f"Failed to create backtest: {e}",
+    extra={"user_id": user_id},
+    exc_info=True
+)
+```
+
+## Service Initialization
+
+### ALWAYS use dependency injection pattern:
+```python
+# Service accepts repository
+class BacktestService:
+    def __init__(self, repository: BacktestRepository = None):
+        self.repository = repository or BacktestRepository(db)
+
+# Repository accepts database
+class BacktestRepository(BaseRepository):
+    def __init__(self, database=None):
+        self.db = database or db
+```
+
+## Model Validation
+
+### ALWAYS use Pydantic models:
+```python
+# CORRECT
+async def create_backtest(data: BacktestCreate):
+    # data is validated by Pydantic
+    
+# WRONG
+async def create_backtest(data: dict):  # NO!
+```
+
+### Include validators for business rules:
+```python
+class BacktestCreate(BaseModel):
+    symbol: str = Field(..., min_length=1, max_length=20)
+    
+    @validator('symbol')
+    def normalize_symbol(cls, v):
+        return v.upper().strip()
+    
+    @validator('end_date')
+    def validate_dates(cls, v, values):
+        if 'start_date' in values and v <= values['start_date']:
+            raise ValueError('end_date must be after start_date')
+        return v
+```
+
+## HTTP Status Codes
+
+### Use correct status codes:
+```python
+POST   → 201 Created
+DELETE → 204 No Content
+GET    → 200 OK
+PUT    → 200 OK
+Validation Error → 400 Bad Request
+Not Found → 404 Not Found
+Unauthorized → 401 Unauthorized
+Server Error → 500 Internal Server Error
+```
+
+## File Structure Rules
+
+### When adding features, create files in this order:
+1. `app/models/[domain].py` - Pydantic models
+2. `app/repositories/[domain]_repository.py` - Database queries
+3. `app/services/[domain]_service.py` - Business logic
+4. `app/api/v1/[domain]_endpoints.py` - HTTP endpoints
+5. `app/core/exceptions.py` - Add domain exceptions
+
+### Update these files:
+- `app/api/v1/router.py` - Include new router
+- `app/services/__init__.py` - Export new service
+- `app/repositories/__init__.py` - Export new repository
+
+## Market Data Specific Rules
+
+### DuckDB queries go in:
+```python
+# Repository layer only
+app/repositories/market_data_repository.py
+
+# Use the adapter
+from app.infrastructure.duckdb_adapter import duckdb_adapter
+```
+
+### Cache pattern for market data:
+```python
+# Check cache first
+cached_data = await market_data_cache.get_market_data(symbol, timeframe, start_unix, end_unix)
+if cached_data:
+    return cached_data
+
+# Query and cache
+data = await self.repository.query_ohlcv_aggregated(...)
+await market_data_cache.set_market_data(symbol, timeframe, start_unix, end_unix, data)
+```
+
+## Common Fixes
+
+### If you see "Database pool not initialized":
+```python
+# Ensure repository gets database instance
+repository = BacktestRepository(db)  # Pass db explicitly
+```
+
+### If you see import errors:
+```python
+# Change relative to absolute
+# FROM: from ..services import Service
+# TO: from app.services.service_name import Service
+```
+
+### If you see 307 redirect on health endpoint:
+```python
+# Remove duplicate path prefix
+# Router has prefix="/api/v1/health"
+# So endpoint should be @router.get("/") not @router.get("/health")
+```
+
+## Testing Patterns
+
+### Mock repositories when testing services:
+```python
+mock_repo = Mock(spec=BacktestRepository)
+mock_repo.create.return_value = {"id": "test-id", "name": "Test"}
+service = BacktestService(repository=mock_repo)
+```
+
+### Test file location mirrors source:
+```
+app/services/user_service.py → tests/unit/services/test_user_service.py
+app/api/v1/user_endpoints.py → tests/integration/api/test_user_endpoints.py
+```
+
+## FORBIDDEN Patterns
+
+### NEVER do these:
+```python
+# No SQL outside repositories
+await db.fetch_one("SELECT...")  # NOT in services/endpoints
+
+# No relative imports
+from ..models import Model  # ALWAYS use from app.models
+
+# No dict parameters for typed data
+def create_user(data: dict):  # Use UserCreate model
+
+# No business logic in endpoints
+if backtest.status != "active":  # This goes in service
+    raise HTTPException(...)
+
+# No os.getenv outside config
+MINIO_BUCKET = os.getenv("MINIO_BUCKET")  # Use settings.minio_bucket
+
+# No empty except blocks
+try:
+    ...
+except:  # ALWAYS specify exception type
+    pass
+```
+
+## Quick Reference
+
+### File belongs in:
+- SQL queries → `app/repositories/`
+- Business logic → `app/services/`
+- HTTP handling → `app/api/v1/`
+- External services → `app/infrastructure/`
+- Configuration → `app/core/config.py`
+- Exceptions → `app/core/exceptions.py`
+- Pydantic models → `app/models/`
+
+### Import order:
+1. Standard library
+2. Third-party
+3. Local (always absolute: `from app...`)
+
+### Every endpoint needs:
+- Proper HTTP status code
+- Structured logging with context
+- Request parameter in function signature
+- Let exceptions bubble up to handlers
+
+### Every service needs:
+- Repository injection in `__init__`
+- Domain exceptions for errors
+- Return Pydantic response models
+- No SQL queries
+
+### Every repository needs:
+- Inherit from BaseRepository
+- All SQL queries here
+- Return dictionaries
+
+- Handle transactions when needed

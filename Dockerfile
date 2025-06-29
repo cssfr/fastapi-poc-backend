@@ -22,8 +22,8 @@ RUN chmod +x start.sh
 
 EXPOSE 80
 
-# Health check for Coolify
+# Health check for Coolify - UPDATED PATH!
 HEALTHCHECK --interval=30s --timeout=30s --start-period=40s --retries=3 \
-    CMD curl -f http://localhost/health || exit 1
+    CMD curl -f http://localhost/api/v1/health || exit 1
 
 CMD ["./start.sh"]
