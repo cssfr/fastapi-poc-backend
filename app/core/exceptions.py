@@ -141,4 +141,26 @@ class ObjectNotFoundException(StorageException):
         super().__init__(
             message=f"Object not found: {object_key} in bucket {bucket}",
             details={"bucket": bucket, "object_key": object_key}
+        )
+
+# Add these new exceptions
+
+class OHLCVRequestTooLargeError(Exception):
+    """Raised when OHLCV request exceeds size limits"""
+    def __init__(self, timeframe: str, days_requested: int, max_days: int):
+        self.timeframe = timeframe
+        self.days_requested = days_requested
+        self.max_days = max_days
+        super().__init__(
+            f"Date range too large for {timeframe} timeframe. "
+            f"Requested {days_requested} days, maximum allowed: {max_days} days"
+        )
+
+class OHLCVResultTooLargeError(Exception):
+    """Raised when OHLCV result exceeds record limits"""
+    def __init__(self, record_count: int, max_records: int):
+        self.record_count = record_count
+        self.max_records = max_records
+        super().__init__(
+            f"Result too large: {record_count} records. Maximum: {max_records} records"
         ) 

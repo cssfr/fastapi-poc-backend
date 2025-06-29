@@ -1,5 +1,5 @@
 from pydantic_settings import BaseSettings
-from typing import Optional
+from typing import Optional, Dict
 from functools import lru_cache
 
 class Settings(BaseSettings):
@@ -25,6 +25,28 @@ class Settings(BaseSettings):
     minio_secret_key: Optional[str] = None
     minio_secure: bool = False
     minio_bucket: str = "dukascopy-node"
+    
+    # OHLCV Request Limits
+    max_records_per_request: int = 50000
+    max_days_by_timeframe: Dict[str, int] = {
+        "1m": 7,      # 1-minute data: max 1 week
+        "5m": 30,     # 5-minute data: max 1 month  
+        "15m": 90,    # 15-minute data: max 3 months
+        "30m": 180,   # 30-minute data: max 6 months
+        "1h": 365,    # 1-hour data: max 1 year
+        "4h": 1095,   # 4-hour data: max 3 years
+        "1d": 3650,   # 1-day data: max 10 years
+        "1w": 7300,   # 1-week data: max 20 years
+        "1M": 7300,   # 1-month data: max 20 years
+    }
+    
+    # Auto-adjustment thresholds
+    auto_adjust_timeframe: bool = True
+    auto_adjust_thresholds: Dict[str, int] = {
+        "to_1d": 1095,    # > 3 years -> daily
+        "to_1h": 365,     # > 1 year -> hourly  
+        "to_15m": 30,     # > 1 month -> 15min
+    }
     
     class Config:
         env_file = ".env"

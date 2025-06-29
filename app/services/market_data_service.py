@@ -8,6 +8,8 @@ from app.infrastructure.performance_monitor import performance_monitor
 from app.repositories.market_data_repository import MarketDataRepository
 from app.minio_client import MinIOService, MINIO_BUCKET
 from app.services.instrument_service import InstrumentService
+from app.core.config import settings
+from app.core.exceptions import OHLCVRequestTooLargeError, OHLCVResultTooLargeError
 
 logger = logging.getLogger(__name__)
 
@@ -83,6 +85,81 @@ class MarketDataService:
         if source_resolution not in valid_resolutions:
             raise ValueError(f"Invalid source resolution: {source_resolution}. Must be one of: {valid_resolutions}")
     
+    def _validate_request_size(self, start_date: date, end_date: date, timeframe: str):
+        """Validate that request isn't too large to prevent system hangs"""
+        days_requested = (end_date - start_date).days
+        
+        # Get max days for this timeframe
+        max_days = settings.max_days_by_timeframe.get(timeframe.lower(), 365)
+        
+        if days_requested > max_days:
+            logger.warning(
+                f"Request rejected - too large",
+                extra={
+                    "timeframe": timeframe,
+                    "days_requested": days_requested,
+                    "max_days": max_days,
+                    "start_date": start_date.isoformat(),
+                    "end_date": end_date.isoformat()
+                }
+            )
+            raise OHLCVRequestTooLargeError(timeframe, days_requested, max_days)
+    
+    def _auto_adjust_timeframe(self, start_date: date, end_date: date, timeframe: str) -> str:
+        """Auto-adjust timeframe for large date ranges to improve performance"""
+        if not settings.auto_adjust_timeframe:
+            return timeframe
+            
+        days_requested = (end_date - start_date).days
+        original_timeframe = timeframe
+        
+        # Apply auto-adjustment rules based on date range
+        if days_requested > settings.auto_adjust_thresholds["to_1d"] and timeframe in ["1m", "5m", "15m", "30m", "1h"]:
+            timeframe = "1d"
+        elif days_requested > settings.auto_adjust_thresholds["to_1h"] and timeframe in ["1m", "5m", "15m"]:
+            timeframe = "1h"
+        elif days_requested > settings.auto_adjust_thresholds["to_15m"] and timeframe == "1m":
+            timeframe = "15m"
+        
+        if timeframe != original_timeframe:
+            logger.info(
+                f"Auto-adjusted timeframe for performance",
+                extra={
+                    "original_timeframe": original_timeframe,
+                    "adjusted_timeframe": timeframe,
+                    "days_requested": days_requested,
+                    "start_date": start_date.isoformat(),
+                    "end_date": end_date.isoformat()
+                }
+            )
+        
+        return timeframe
+    
+    def _validate_result_size(self, data: List[Dict[str, Any]], symbol: str, timeframe: str):
+        """Validate that result size doesn't exceed limits"""
+        record_count = len(data)
+        
+        if record_count > settings.max_records_per_request:
+            logger.warning(
+                f"Result rejected - too many records",
+                extra={
+                    "symbol": symbol,
+                    "timeframe": timeframe,
+                    "record_count": record_count,
+                    "max_records": settings.max_records_per_request
+                }
+            )
+            raise OHLCVResultTooLargeError(record_count, settings.max_records_per_request)
+    
+    def _optimize_source_resolution(self, timeframe: str, days_requested: int) -> str:
+        """Choose optimal source resolution based on timeframe and date range"""
+        # For short periods with minute-level timeframes, use 1m source
+        if timeframe in ["1m", "5m", "15m"] and days_requested <= 30:
+            return "1m"
+        
+        # For longer periods or larger timeframes, use 1Y source
+        return "1Y"
+    
     async def get_ohlcv_data(
         self,
         symbol: str,
@@ -93,39 +170,64 @@ class MarketDataService:
     ) -> List[Dict[str, Any]]:
         """Get OHLCV data for a symbol within date range with proper aggregation
         
-        Args:
-            symbol: Trading symbol
-            start_date: Start date for data
-            end_date: End date for data  
-            timeframe: Target aggregation timeframe (1m, 5m, 15m, 1h, 1d, etc.)
-            source_resolution: Source data folder ("1m" for daily files, "1Y" for yearly files)
+        Now includes automatic request validation, timeframe adjustment, and result limiting
         """
         
-        # Validation
+        # Input validation
         self._validate_timeframe(timeframe)
         self._validate_source_resolution(source_resolution)
         
         if start_date > end_date:
             raise ValueError("Start date must be before or equal to end date")
         
-        # BUSINESS LOGIC: Bound date range to available data (stays in service layer)
+        days_requested = (end_date - start_date).days
+        
+        # 1. VALIDATE REQUEST SIZE - prevent system hangs
+        self._validate_request_size(start_date, end_date, timeframe)
+        
+        # 2. AUTO-ADJUST TIMEFRAME - improve performance for large ranges
+        adjusted_timeframe = self._auto_adjust_timeframe(start_date, end_date, timeframe)
+        
+        # 3. OPTIMIZE SOURCE RESOLUTION - choose best source
+        optimized_source = self._optimize_source_resolution(adjusted_timeframe, days_requested)
+        
+        # Log optimization decisions
+        if adjusted_timeframe != timeframe or optimized_source != source_resolution:
+            logger.info(
+                f"Request optimized for performance",
+                extra={
+                    "symbol": symbol,
+                    "original_timeframe": timeframe,
+                    "adjusted_timeframe": adjusted_timeframe,
+                    "original_source": source_resolution,
+                    "optimized_source": optimized_source,
+                    "days_requested": days_requested
+                }
+            )
+        
+        # 4. BOUND DATE RANGE - use bounded dates for data retrieval
         bounded_start, bounded_end = await self.instrument_service.bound_date_range(
-            symbol, start_date, end_date, source_resolution
+            symbol, start_date, end_date, optimized_source
         )
         
-        # Log if dates were adjusted
+        # Log if dates were bounded
         if bounded_start != start_date or bounded_end != end_date:
             logger.info(
-                f"Date range bounded for {symbol}: "
-                f"requested [{start_date} to {end_date}] -> "
-                f"bounded [{bounded_start} to {bounded_end}]"
+                f"Date range bounded for {symbol}",
+                extra={
+                    "requested_start": start_date.isoformat(),
+                    "requested_end": end_date.isoformat(),
+                    "bounded_start": bounded_start.isoformat(),
+                    "bounded_end": bounded_end.isoformat(),
+                    "symbol": symbol
+                }
             )
         
         if not MinIOService.is_available():
             raise RuntimeError("MinIO service not available")
         
-        # Use bounded dates for data retrieval
-        s3_paths = self._build_s3_paths(symbol, bounded_start, bounded_end, source_resolution)
+        # 5. BUILD S3 PATHS - use optimized source and bounded dates
+        s3_paths = self._build_s3_paths(symbol, bounded_start, bounded_end, optimized_source)
         
         if not s3_paths:
             raise ValueError(f"No data paths generated for symbol {symbol} between {bounded_start} and {bounded_end}")
@@ -134,29 +236,35 @@ class MarketDataService:
         start_unix = int(datetime.combine(bounded_start, datetime.min.time()).replace(tzinfo=timezone.utc).timestamp())
         end_unix = int(datetime.combine(bounded_end, datetime.max.time()).replace(tzinfo=timezone.utc).timestamp())
         
-        # Check cache first
-        cached_data = await market_data_cache.get_market_data(symbol, timeframe, start_unix, end_unix)
+        # 6. CHECK CACHE - with adjusted parameters
+        cache_key_timeframe = adjusted_timeframe
+        cached_data = await market_data_cache.get_market_data(symbol, cache_key_timeframe, start_unix, end_unix)
         if cached_data:
+            # Validate cached result size
+            self._validate_result_size(cached_data, symbol, cache_key_timeframe)
+            
             tracking = await performance_monitor.track_query("get_ohlcv_data", symbol)
             await performance_monitor.complete_query(tracking, len(cached_data), cache_hit=True)
-            logger.info(f"Retrieved {len(cached_data)} records from cache for {symbol} ({timeframe})")
+            logger.info(f"Retrieved {len(cached_data)} records from cache for {symbol} ({cache_key_timeframe})")
             return cached_data
         
-        # Track performance for database query
+        # 7. EXECUTE QUERY - with performance tracking
         tracking = await performance_monitor.track_query("get_ohlcv_data", symbol)
         
         try:
-            # For 1Y source, we always need to filter by date since files contain full years
-            # For 1m source, we can optimize by not aggregating if timeframe matches
-            if source_resolution == "1m" and timeframe == "1m":
+            # Choose query strategy based on optimized parameters
+            if optimized_source == "1m" and adjusted_timeframe == "1m":
                 # Raw 1m data from 1m source - no aggregation needed
                 data = await self.repository.query_ohlcv_raw(s3_paths, symbol, start_unix, end_unix)
             else:
                 # Aggregated data or 1Y source (always needs date filtering)
-                interval_seconds = self._get_interval_seconds(timeframe)
+                interval_seconds = self._get_interval_seconds(adjusted_timeframe)
                 data = await self.repository.query_ohlcv_aggregated(s3_paths, symbol, start_unix, end_unix, interval_seconds)
             
-            # Convert timestamps to ISO format for JSON serialization
+            # 8. VALIDATE RESULT SIZE - prevent memory issues
+            self._validate_result_size(data, symbol, adjusted_timeframe)
+            
+            # 9. PROCESS RESULTS - convert timestamps to ISO format
             for row in data:
                 if isinstance(row.get('timestamp'), datetime):
                     row['timestamp'] = row['timestamp'].isoformat()
@@ -164,18 +272,38 @@ class MarketDataService:
                     # Convert unix timestamp back to ISO format (UTC)
                     row['timestamp'] = datetime.fromtimestamp(row['unix_time'], tz=timezone.utc).isoformat()
             
-            # Cache the results
-            await market_data_cache.set_market_data(symbol, timeframe, start_unix, end_unix, data)
+            # 10. CACHE RESULTS - with adjusted timeframe
+            await market_data_cache.set_market_data(symbol, cache_key_timeframe, start_unix, end_unix, data)
             
-            # Complete performance tracking
+            # 11. COMPLETE PERFORMANCE TRACKING
             data_size = len(str(data).encode('utf-8')) if data else 0
             await performance_monitor.complete_query(tracking, len(data), cache_hit=False, data_size_bytes=data_size)
             
-            logger.info(f"Retrieved {len(data)} records for {symbol} ({timeframe} from {source_resolution} source)")
+            logger.info(
+                f"Successfully retrieved OHLCV data",
+                extra={
+                    "symbol": symbol,
+                    "timeframe": adjusted_timeframe,
+                    "source": optimized_source,
+                    "record_count": len(data),
+                    "days_requested": days_requested,
+                    "performance_optimized": adjusted_timeframe != timeframe or optimized_source != source_resolution
+                }
+            )
+            
             return data
             
         except Exception as e:
-            logger.error(f"Failed to get OHLCV data for {symbol}: {e}")
+            logger.error(
+                f"Failed to get OHLCV data",
+                extra={
+                    "symbol": symbol,
+                    "timeframe": adjusted_timeframe,
+                    "source": optimized_source,
+                    "error": str(e),
+                    "days_requested": days_requested
+                }
+            )
             raise
     
     async def get_available_symbols(self, source_resolution: str = "1m") -> List[str]:

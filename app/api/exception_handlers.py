@@ -3,7 +3,8 @@ from fastapi.responses import JSONResponse
 from app.core.exceptions import (
     BacktestingException, BacktestNotFoundException,
     ValidationError, AuthenticationError, DatabaseError,
-    NotFoundError, InsufficientCapitalError
+    NotFoundError, InsufficientCapitalError,
+    OHLCVRequestTooLargeError, OHLCVResultTooLargeError
 )
 import logging
 from datetime import datetime
@@ -63,4 +64,35 @@ def register_exception_handlers(app: FastAPI):
     
     @app.exception_handler(Exception)
     async def handle_unexpected_error(request: Request, exc: Exception):
-        return create_error_response(request, exc, status.HTTP_500_INTERNAL_SERVER_ERROR) 
+        return create_error_response(request, exc, status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+    @app.exception_handler(OHLCVRequestTooLargeError)
+    async def ohlcv_request_too_large_handler(request: Request, exc: OHLCVRequestTooLargeError):
+        return JSONResponse(
+            status_code=400,
+            content={
+                "error": "Request Too Large",
+                "message": str(exc),
+                "details": {
+                    "timeframe": exc.timeframe,
+                    "days_requested": exc.days_requested,
+                    "max_days_allowed": exc.max_days,
+                    "suggestion": f"Use a larger timeframe (e.g., '1h', '1d') for date ranges longer than {exc.max_days} days"
+                }
+            }
+        )
+    
+    @app.exception_handler(OHLCVResultTooLargeError)
+    async def ohlcv_result_too_large_handler(request: Request, exc: OHLCVResultTooLargeError):
+        return JSONResponse(
+            status_code=400,
+            content={
+                "error": "Result Too Large", 
+                "message": str(exc),
+                "details": {
+                    "record_count": exc.record_count,
+                    "max_records_allowed": exc.max_records,
+                    "suggestion": "Reduce date range or use a larger timeframe to get fewer data points"
+                }
+            }
+        ) 
