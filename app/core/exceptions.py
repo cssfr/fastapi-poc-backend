@@ -147,14 +147,27 @@ class ObjectNotFoundException(StorageException):
 
 class OHLCVRequestTooLargeError(Exception):
     """Raised when OHLCV request exceeds size limits"""
-    def __init__(self, timeframe: str, days_requested: int, max_days: int):
+    def __init__(self, timeframe: str, days_requested: int, max_limit: int, estimated_records: int = None):
         self.timeframe = timeframe
         self.days_requested = days_requested
-        self.max_days = max_days
-        super().__init__(
-            f"Date range too large for {timeframe} timeframe. "
-            f"Requested {days_requested} days, maximum allowed: {max_days} days"
-        )
+        self.max_limit = max_limit  # Could be max_days or max_records depending on context
+        self.estimated_records = estimated_records
+        
+        # Create contextual error message
+        if estimated_records and estimated_records > 50000:
+            message = (
+                f"Request would return too many records (~{estimated_records:,}) for {timeframe} timeframe. "
+                f"Maximum allowed: {max_limit:,} records. "
+                f"Reduce date range or use a larger timeframe."
+            )
+        else:
+            message = (
+                f"Date range too large for {timeframe} timeframe. "
+                f"Requested {days_requested} days, maximum allowed: {max_limit} days. "
+                f"Use a larger timeframe for longer historical periods."
+            )
+        
+        super().__init__(message)
 
 class OHLCVResultTooLargeError(Exception):
     """Raised when OHLCV result exceeds record limits"""

@@ -59,8 +59,8 @@ async def get_available_timeframes(request: Request, user_id: str = Depends(veri
         extra={"request_id": getattr(request.state, "request_id", "unknown")}
     )
     
-    # Return supported timeframes (static list)
-    timeframes = ["1m", "5m", "15m", "30m", "1h", "4h", "1d", "1w"]
+    # Return supported timeframes (static list) - Add 1M support
+    timeframes = ["1m", "5m", "15m", "30m", "1h", "4h", "1d", "1w", "1M"]
     
     logger.info(
         f"Found {len(timeframes)} timeframes",
@@ -129,7 +129,7 @@ async def get_ohlcv_data_get(
     symbol: str = Query(..., description="Trading symbol"),
     start_date: str = Query(..., description="Start date (YYYY-MM-DD)"),
     end_date: str = Query(..., description="End date (YYYY-MM-DD)"),
-    timeframe: str = Query("1d", pattern="^(1m|5m|15m|30m|1h|4h|1d|1w)$", description="Timeframe"),
+    timeframe: str = Query("1d", pattern="^(1m|5m|15m|30m|1h|4h|1d|1w|1M)$", description="Timeframe"),
     source_resolution: str = Query("1Y", description="Source resolution (1m or 1Y)"),
     user_id: str = Depends(verify_token)
 ):
