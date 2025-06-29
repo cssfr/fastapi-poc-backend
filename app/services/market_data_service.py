@@ -240,34 +240,9 @@ class MarketDataService:
         if start_date > end_date:
             raise ValueError("Start date must be before or equal to end date")
         
-        days_requested = (end_date - start_date).days
-        
-        # 1. VALIDATE REQUEST SIZE - prevent system hangs
-        self._validate_request_size(start_date, end_date, timeframe)
-        
-        # 2. AUTO-ADJUST TIMEFRAME - improve performance for large ranges
-        adjusted_timeframe = self._auto_adjust_timeframe(start_date, end_date, timeframe)
-        
-        # 3. OPTIMIZE SOURCE RESOLUTION - choose best source
-        optimized_source = self._optimize_source_resolution(adjusted_timeframe, days_requested)
-        
-        # Log optimization decisions
-        if adjusted_timeframe != timeframe or optimized_source != source_resolution:
-            logger.info(
-                f"Request optimized for performance",
-                extra={
-                    "symbol": symbol,
-                    "original_timeframe": timeframe,
-                    "adjusted_timeframe": adjusted_timeframe,
-                    "original_source": source_resolution,
-                    "optimized_source": optimized_source,
-                    "days_requested": days_requested
-                }
-            )
-        
-        # 4. BOUND DATE RANGE - use bounded dates for data retrieval
+        # 1. BOUND DATE RANGE FIRST - clip to available data before validation
         bounded_start, bounded_end = await self.instrument_service.bound_date_range(
-            symbol, start_date, end_date, optimized_source
+            symbol, start_date, end_date, source_resolution
         )
         
         # Log if dates were bounded
@@ -280,6 +255,31 @@ class MarketDataService:
                     "bounded_start": bounded_start.isoformat(),
                     "bounded_end": bounded_end.isoformat(),
                     "symbol": symbol
+                }
+            )
+        
+        bounded_days = (bounded_end - bounded_start).days
+        
+        # 2. VALIDATE BOUNDED REQUEST SIZE - prevent system hangs on bounded range
+        self._validate_request_size(bounded_start, bounded_end, timeframe)
+        
+        # 3. AUTO-ADJUST TIMEFRAME - improve performance for large ranges
+        adjusted_timeframe = self._auto_adjust_timeframe(bounded_start, bounded_end, timeframe)
+        
+        # 4. OPTIMIZE SOURCE RESOLUTION - choose best source
+        optimized_source = self._optimize_source_resolution(adjusted_timeframe, bounded_days)
+        
+        # Log optimization decisions
+        if adjusted_timeframe != timeframe or optimized_source != source_resolution:
+            logger.info(
+                f"Request optimized for performance",
+                extra={
+                    "symbol": symbol,
+                    "original_timeframe": timeframe,
+                    "adjusted_timeframe": adjusted_timeframe,
+                    "original_source": source_resolution,
+                    "optimized_source": optimized_source,
+                    "bounded_days": bounded_days
                 }
             )
         
@@ -346,7 +346,7 @@ class MarketDataService:
                     "timeframe": adjusted_timeframe,
                     "source": optimized_source,
                     "record_count": len(data),
-                    "days_requested": days_requested,
+                    "bounded_days": bounded_days,
                     "performance_optimized": adjusted_timeframe != timeframe or optimized_source != source_resolution
                 }
             )
@@ -361,7 +361,7 @@ class MarketDataService:
                     "timeframe": adjusted_timeframe,
                     "source": optimized_source,
                     "error": str(e),
-                    "days_requested": days_requested
+                    "bounded_days": bounded_days
                 }
             )
             raise
