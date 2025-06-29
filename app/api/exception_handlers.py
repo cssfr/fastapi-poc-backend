@@ -68,6 +68,9 @@ def register_exception_handlers(app: FastAPI):
     
     @app.exception_handler(OHLCVRequestTooLargeError)
     async def ohlcv_request_too_large_handler(request: Request, exc: OHLCVRequestTooLargeError):
+        # Determine if this is a record count or day limit error
+        is_record_limit = exc.estimated_records and exc.estimated_records > 50000
+        
         return JSONResponse(
             status_code=400,
             content={
@@ -76,8 +79,13 @@ def register_exception_handlers(app: FastAPI):
                 "details": {
                     "timeframe": exc.timeframe,
                     "days_requested": exc.days_requested,
-                    "max_days_allowed": exc.max_days,
-                    "suggestion": f"Use a larger timeframe (e.g., '1h', '1d') for date ranges longer than {exc.max_days} days"
+                    "max_limit_allowed": exc.max_limit,
+                    "estimated_records": exc.estimated_records,
+                    "limit_type": "records" if is_record_limit else "days",
+                    "suggestion": (
+                        f"Reduce date range to stay under {exc.max_limit:,} records" if is_record_limit 
+                        else f"Use a larger timeframe (e.g., '1h', '1d') for date ranges longer than {exc.max_limit} days"
+                    )
                 }
             }
         )

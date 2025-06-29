@@ -37,7 +37,7 @@ class Settings(BaseSettings):
         "4h": 1095,   # 4-hour data: max 3 years
         "1d": 3650,   # 1-day data: max 10 years
         "1w": 18250,  # 1-week data: max 50 years
-        "1m": 36500,  # 1-month data: max 100 years (using 1m key for 1M timeframe)
+        "1M": 36500,  # Fixed: was "1m" - 1-month data: max 100 years
     }
     
     # Auto-adjustment thresholds
