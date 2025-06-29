@@ -176,7 +176,7 @@ class MarketDataRepository:
         
         paths_str = "['" + "', '".join(s3_paths) + "']"
         
-        # Handle yearly aggregation differently - use actual first timestamp per year
+        # Handle yearly aggregation - use actual first timestamp per year
         if interval_seconds == 31536000:  # 1Y = 31536000 seconds
             query = f"""
                 SELECT 
@@ -204,19 +204,40 @@ class MarketDataRepository:
                 GROUP BY symbol, year_bucket, first_timestamp
                 ORDER BY year_bucket ASC
             """
-            
-            logger.debug(
-                f"Executing yearly aggregated DuckDB query",
-                extra={
-                    "symbol": symbol,
-                    "paths_count": len(s3_paths),
-                    "interval_seconds": interval_seconds,
-                    "query_type": "yearly_calendar_aggregated",
-                    "uses_actual_timestamps": True
-                }
-            )
+        # Handle monthly aggregation - use actual first timestamp per month
+        elif interval_seconds == 2592000:  # 1M = 2592000 seconds (30 days)
+            query = f"""
+                SELECT 
+                    symbol,
+                    to_timestamp(first_timestamp) as timestamp,
+                    first_timestamp as unix_time,
+                    first(open ORDER BY unix_time) as open,
+                    max(high) as high,
+                    min(low) as low,
+                    last(close ORDER BY unix_time) as close,
+                    sum(volume) as volume
+                FROM (
+                    SELECT 
+                        symbol,
+                        timestamp,
+                        unix_time,
+                        open, high, low, close, volume,
+                        CONCAT(EXTRACT(YEAR FROM to_timestamp(unix_time)), '-', 
+                               LPAD(EXTRACT(MONTH FROM to_timestamp(unix_time))::TEXT, 2, '0')) as month_bucket,
+                        min(unix_time) OVER (PARTITION BY 
+                            EXTRACT(YEAR FROM to_timestamp(unix_time)), 
+                            EXTRACT(MONTH FROM to_timestamp(unix_time))
+                        ) as first_timestamp
+                    FROM read_parquet({paths_str})
+                    WHERE symbol = '{symbol}'
+                        AND unix_time >= {start_unix}
+                        AND unix_time <= {end_unix}
+                ) 
+                GROUP BY symbol, month_bucket, first_timestamp
+                ORDER BY month_bucket ASC
+            """
         else:
-            # Existing logic for other timeframes (minutes, hours, days, weeks, months)
+            # Existing logic for other timeframes (minutes, hours, days, weeks)
             query = f"""
                 SELECT 
                     symbol,
@@ -253,8 +274,10 @@ class MarketDataRepository:
                 "symbol": symbol,
                 "paths_count": len(s3_paths),
                 "interval_seconds": interval_seconds,
-                "query_type": "yearly_aggregated" if interval_seconds == 31536000 else "aggregated",
-                "is_yearly": interval_seconds == 31536000
+                "query_type": "yearly_calendar" if interval_seconds == 31536000 
+                             else "monthly_calendar" if interval_seconds == 2592000 
+                             else "time_bucket",
+                "uses_calendar_periods": interval_seconds in [2592000, 31536000]
             }
         )
         
@@ -326,7 +349,7 @@ class MarketDataRepository:
         
         for path in s3_paths:
             try:
-                # Handle yearly aggregation differently in recovery too
+                # Handle yearly aggregation in recovery
                 if interval_seconds == 31536000:  # 1Y = 31536000 seconds
                     single_path_query = f"""
                         SELECT 
@@ -340,19 +363,45 @@ class MarketDataRepository:
                             sum(volume) as volume
                         FROM (
                             SELECT 
-                                symbol,
-                                timestamp,
-                                unix_time,
-                                open, high, low, close, volume,
+                                symbol, timestamp, unix_time, open, high, low, close, volume,
                                 EXTRACT(YEAR FROM to_timestamp(unix_time)) as year_bucket,
                                 min(unix_time) OVER (PARTITION BY EXTRACT(YEAR FROM to_timestamp(unix_time))) as first_timestamp
+                            FROM read_parquet(['{path}'])
+                            WHERE symbol = '{symbol}'
+                                AND EXTRACT(YEAR FROM to_timestamp(unix_time)) >= EXTRACT(YEAR FROM to_timestamp({start_unix}))
+                                AND EXTRACT(YEAR FROM to_timestamp(unix_time)) <= EXTRACT(YEAR FROM to_timestamp({end_unix}))
+                        ) 
+                        GROUP BY symbol, year_bucket, first_timestamp
+                        ORDER BY year_bucket ASC
+                    """
+                # Handle monthly aggregation in recovery
+                elif interval_seconds == 2592000:  # 1M = 2592000 seconds
+                    single_path_query = f"""
+                        SELECT 
+                            symbol,
+                            to_timestamp(first_timestamp) as timestamp,
+                            first_timestamp as unix_time,
+                            first(open ORDER BY unix_time) as open,
+                            max(high) as high,
+                            min(low) as low,
+                            last(close ORDER BY unix_time) as close,
+                            sum(volume) as volume
+                        FROM (
+                            SELECT 
+                                symbol, timestamp, unix_time, open, high, low, close, volume,
+                                CONCAT(EXTRACT(YEAR FROM to_timestamp(unix_time)), '-', 
+                                       LPAD(EXTRACT(MONTH FROM to_timestamp(unix_time))::TEXT, 2, '0')) as month_bucket,
+                                min(unix_time) OVER (PARTITION BY 
+                                    EXTRACT(YEAR FROM to_timestamp(unix_time)), 
+                                    EXTRACT(MONTH FROM to_timestamp(unix_time))
+                                ) as first_timestamp
                             FROM read_parquet(['{path}'])
                             WHERE symbol = '{symbol}'
                                 AND unix_time >= {start_unix}
                                 AND unix_time <= {end_unix}
                         ) 
-                        GROUP BY symbol, year_bucket, first_timestamp
-                        ORDER BY year_bucket ASC
+                        GROUP BY symbol, month_bucket, first_timestamp
+                        ORDER BY month_bucket ASC
                     """
                 else:
                     # Existing logic for other timeframes
@@ -387,15 +436,14 @@ class MarketDataRepository:
                     """
                 
                 result = self.conn.execute(single_path_query).fetchall()
+                columns = [desc[0] for desc in self.conn.description]
+                path_data = [dict(zip(columns, row)) for row in result]
                 
-                if result:
-                    columns = [desc[0] for desc in self.conn.description]
-                    file_data = [dict(zip(columns, row)) for row in result]
-                    all_data.extend(file_data)
-                    successful_paths.append(path)
-                    
-            except Exception as file_error:
-                failed_paths.append({"path": path, "error": str(file_error)})
+                all_data.extend(path_data)
+                successful_paths.append(path)
+                
+            except Exception as path_error:
+                failed_paths.append({"path": path, "error": str(path_error)})
                 continue
         
         # Log recovery results
