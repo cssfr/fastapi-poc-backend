@@ -108,7 +108,7 @@ async def root():
         "message": "FastAPI Backtesting API",
         "version": "1.0.0",
         "docs": "/docs",
-        "health": "/api/v1/health/"
+        "health": "/api/v1/health"
     }
 
 @app.get("/cors-test")

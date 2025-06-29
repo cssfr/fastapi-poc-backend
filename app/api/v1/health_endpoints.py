@@ -12,11 +12,11 @@ from app.core.config import settings
 logger = logging.getLogger(__name__)
 
 router = APIRouter(
-    prefix="/api/v1/health",
+    prefix="/api/v1",
     tags=["health"]
 )
 
-@router.get("/")
+@router.get("/health")
 async def health_check(request: Request) -> Dict[str, Any]:
     """Basic health check endpoint"""
     logger.info(
@@ -31,7 +31,7 @@ async def health_check(request: Request) -> Dict[str, Any]:
         "environment": settings.environment
     }
 
-@router.get("/detailed")
+@router.get("/health/detailed")
 async def detailed_health_check(request: Request) -> Dict[str, Any]:
     """Detailed health check with dependency status"""
     logger.info(
@@ -81,7 +81,7 @@ async def detailed_health_check(request: Request) -> Dict[str, Any]:
     
     return health_status
 
-@router.get("/ready")
+@router.get("/health/ready")
 async def readiness_check(request: Request) -> Dict[str, Any]:
     """Readiness check for Kubernetes/deployment systems"""
     logger.info(
