@@ -278,15 +278,50 @@ async def get_instrument_metadata(request: Request, symbol: str, user_id: str = 
     
     return metadata
 
-@router.get("/cache/clear")
+@router.post("/instruments/reload")
+async def reload_instruments_cache(request: Request, user_id: str = Depends(verify_token)):
+    """Force reload instruments metadata cache from MinIO"""
+    logger.info("Force reloading instruments metadata cache")
+    
+    cache_info_before = InstrumentService.get_cache_info()
+    InstrumentService.force_reload()  # Let exceptions bubble up
+    cache_info_after = InstrumentService.get_cache_info()
+    
+    return {
+        "message": "Instruments metadata cache reloaded successfully",
+        "cache_info": {"before": cache_info_before, "after": cache_info_after}
+    }
+
+@router.get("/instruments/cache-info")
+async def get_instruments_cache_info(request: Request, user_id: str = Depends(verify_token)):
+    """Get current instruments cache information"""
+    return {
+        "cache_info": InstrumentService.get_cache_info()
+    }
+
+@router.delete("/cache/clear")
 async def clear_cache(request: Request, user_id: str = Depends(verify_token)):
-    """Clear the OHLCV data cache"""
+    """Clear all caches (OHLCV data and instruments metadata)"""
     logger.info(
-        "Clearing OHLCV cache",
+        "Clearing all caches",
         extra={"request_id": getattr(request.state, "request_id", "unknown")}
     )
     
-    # Clear market data cache using new infrastructure
-    market_data_cache._memory_cache.clear()  # Clear in-memory cache
-    
-    return {"message": "Cache cleared successfully"} 
+    try:
+        # Clear market data cache
+        market_data_cache._memory_cache.clear()
+        
+        # Clear instruments metadata cache
+        InstrumentService.force_reload()
+        
+        return {
+            "message": "All caches cleared successfully",
+            "cleared": ["market_data_cache", "instruments_metadata_cache"]
+        }
+        
+    except Exception as e:
+        logger.error(f"Error clearing caches: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to clear caches: {str(e)}"
+        ) 

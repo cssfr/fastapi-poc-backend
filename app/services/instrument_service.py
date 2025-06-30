@@ -358,5 +358,27 @@ class InstrumentService:
                 result[symbol] = metadata
         return result
 
+    @classmethod
+    def force_reload(cls):
+        """Force reload instruments data from MinIO - for development use"""
+        try:
+            cls._data_loaded = False
+            cls._global_instruments_data = None
+            logger.info("Instruments metadata cache cleared - will reload on next request")
+        except Exception as e:
+            logger.error(f"Failed to clear instruments cache: {e}", exc_info=True)
+            from app.core.exceptions import InstrumentServiceException
+            raise InstrumentServiceException(f"Failed to reload instruments cache: {str(e)}")
+
+    @classmethod
+    def get_cache_info(cls) -> dict:
+        """Get information about current cache state"""
+        return {
+            "is_loaded": cls._data_loaded,
+            "has_data": cls._global_instruments_data is not None,
+            "instrument_count": len([k for k in cls._global_instruments_data.keys() if not k.startswith('_')]) if cls._global_instruments_data else 0,
+            "last_updated": cls._global_instruments_data.get("_updated", "unknown") if cls._global_instruments_data else "unknown"
+        }
+
 # Service should be instantiated with dependency injection
 # Example: instrument_service = InstrumentService(minio_client_instance) 
