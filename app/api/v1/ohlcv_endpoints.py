@@ -269,11 +269,41 @@ async def get_instrument_metadata(request: Request, symbol: str, user_id: str = 
     return metadata
 
 @router.post("/instruments/reload")
-async def reload_instruments_cache(request: Request, user_id: str = Depends(verify_token)):
-    """Force reload instruments metadata cache from MinIO"""
+async def reload_instruments_cache(
+    request: Request,
+    api_key: str = Query(..., description="Cache reload API key for CI/CD workflows")
+):
+    """Force reload instruments metadata cache - for CI/CD workflows"""
+    
+    # Validate API key is configured
+    if not settings.cache_reload_api_key:
+        logger.error("Cache reload API key not configured in environment")
+        raise HTTPException(
+            status_code=500, 
+            detail="Cache reload API key not configured"
+        )
+    
+    # Validate provided API key
+    if api_key != settings.cache_reload_api_key:
+        logger.warning(
+            "Invalid API key for cache reload attempt",
+            extra={
+                "source_ip": request.client.host if request.client else "unknown",
+                "user_agent": request.headers.get("user-agent"),
+                "provided_key_length": len(api_key) if api_key else 0,
+                "request_id": getattr(request.state, "request_id", "unknown")
+            }
+        )
+        raise HTTPException(status_code=401, detail="Invalid API key")
+    
+    # Log successful authentication
     logger.info(
-        "Force reloading instruments metadata cache",
-        extra={"request_id": getattr(request.state, "request_id", "unknown")}
+        "Cache reload request authenticated successfully",
+        extra={
+            "source_ip": request.client.host if request.client else "unknown",
+            "user_agent": request.headers.get("user-agent"),
+            "request_id": getattr(request.state, "request_id", "unknown")
+        }
     )
     
     try:
@@ -288,10 +318,11 @@ async def reload_instruments_cache(request: Request, user_id: str = Depends(veri
         cache_info_after = InstrumentService.get_cache_info()
         
         logger.info(
-            "Instruments metadata cache reloaded successfully",
+            "Instruments metadata cache reloaded successfully via API key",
             extra={
                 "before": cache_info_before,
                 "after": cache_info_after,
+                "triggered_by": "api_key_request",
                 "request_id": getattr(request.state, "request_id", "unknown")
             }
         )
@@ -301,12 +332,13 @@ async def reload_instruments_cache(request: Request, user_id: str = Depends(veri
             "cache_info": {
                 "before": cache_info_before,
                 "after": cache_info_after
-            }
+            },
+            "timestamp": datetime.now(timezone.utc).isoformat()
         }
         
     except Exception as e:
         logger.error(
-            f"Failed to reload instruments cache: {e}",
+            f"Failed to reload instruments cache via API: {e}",
             extra={"request_id": getattr(request.state, "request_id", "unknown")},
             exc_info=True
         )

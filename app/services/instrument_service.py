@@ -388,8 +388,8 @@ class InstrumentService:
             "has_data": cls._global_instruments_data is not None,
             "instrument_count": len([k for k in cls._global_instruments_data.keys() if not k.startswith('_')]) if cls._global_instruments_data else 0,
             "last_updated": cls._global_instruments_data.get("_updated", "unknown") if cls._global_instruments_data else "unknown",
-            "data_loaded_flag": cls._data_loaded,  # For debugging
-            "has_global_data": cls._global_instruments_data is not None  # For debugging
+            "data_loaded_flag": cls._data_loaded,
+            "has_global_data": cls._global_instruments_data is not None
         }
 
 # Service should be instantiated with dependency injection

@@ -26,6 +26,9 @@ class Settings(BaseSettings):
     minio_secure: bool = False
     minio_bucket: str = "dukascopy-node"
     
+    # Cache management for CI/CD workflows
+    cache_reload_api_key: Optional[str] = None
+    
     # OHLCV Request Limits - Updated for yearly timeframes
     max_records_per_request: int = 50000
     
