@@ -21,16 +21,6 @@ router = APIRouter(
     # Remove router-level auth to allow OPTIONS preflight requests
 )
 
-# Create a global instrument service instance (singleton pattern)
-_global_instrument_service = None
-
-def get_instrument_service() -> InstrumentService:
-    """Get or create the global instrument service instance"""
-    global _global_instrument_service
-    if _global_instrument_service is None:
-        _global_instrument_service = InstrumentService()
-    return _global_instrument_service
-
 @router.get("/symbols", response_model=List[str])
 async def get_available_symbols(request: Request, user_id: str = Depends(verify_token)):
     """Get all available symbols in the dataset"""
@@ -161,8 +151,8 @@ async def _get_ohlcv_data_internal(request: Request, ohlcv_request: OHLCVRequest
             detail="Start date must not be after end date"
         )
     
-    # Use shared instrument service instance
-    instrument_service = get_instrument_service()
+    # Use consistent instantiation instead of singleton wrapper
+    instrument_service = InstrumentService()
     market_data_service = MarketDataService(instrument_service=instrument_service)
     
     # Get data from market data service
@@ -281,16 +271,49 @@ async def get_instrument_metadata(request: Request, symbol: str, user_id: str = 
 @router.post("/instruments/reload")
 async def reload_instruments_cache(request: Request, user_id: str = Depends(verify_token)):
     """Force reload instruments metadata cache from MinIO"""
-    logger.info("Force reloading instruments metadata cache")
+    logger.info(
+        "Force reloading instruments metadata cache",
+        extra={"request_id": getattr(request.state, "request_id", "unknown")}
+    )
     
-    cache_info_before = InstrumentService.get_cache_info()
-    InstrumentService.force_reload()  # Let exceptions bubble up
-    cache_info_after = InstrumentService.get_cache_info()
-    
-    return {
-        "message": "Instruments metadata cache reloaded successfully",
-        "cache_info": {"before": cache_info_before, "after": cache_info_after}
-    }
+    try:
+        # Get cache info before reload
+        cache_info_before = InstrumentService.get_cache_info()
+        
+        # Force reload
+        InstrumentService.force_reload()
+        
+        # Verify reload works by creating a new service instance
+        test_service = InstrumentService()
+        cache_info_after = InstrumentService.get_cache_info()
+        
+        logger.info(
+            "Instruments metadata cache reloaded successfully",
+            extra={
+                "before": cache_info_before,
+                "after": cache_info_after,
+                "request_id": getattr(request.state, "request_id", "unknown")
+            }
+        )
+        
+        return {
+            "message": "Instruments metadata cache reloaded successfully",
+            "cache_info": {
+                "before": cache_info_before,
+                "after": cache_info_after
+            }
+        }
+        
+    except Exception as e:
+        logger.error(
+            f"Failed to reload instruments cache: {e}",
+            extra={"request_id": getattr(request.state, "request_id", "unknown")},
+            exc_info=True
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to reload instruments cache: {str(e)}"
+        )
 
 @router.get("/instruments/cache-info")
 async def get_instruments_cache_info(request: Request, user_id: str = Depends(verify_token)):

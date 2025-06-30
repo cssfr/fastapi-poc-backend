@@ -361,14 +361,24 @@ class InstrumentService:
     @classmethod
     def force_reload(cls):
         """Force reload instruments data from MinIO - for development use"""
-        try:
-            cls._data_loaded = False
-            cls._global_instruments_data = None
-            logger.info("Instruments metadata cache cleared - will reload on next request")
-        except Exception as e:
-            logger.error(f"Failed to clear instruments cache: {e}", exc_info=True)
-            from app.core.exceptions import InstrumentServiceException
-            raise InstrumentServiceException(f"Failed to reload instruments cache: {str(e)}")
+        logger.info("Clearing instruments cache and forcing reload...")
+        
+        # Clear the cache flags
+        cls._data_loaded = False
+        cls._global_instruments_data = None
+        
+        # Force immediate reload by creating a temporary instance
+        logger.info("Creating temporary instance to trigger reload...")
+        temp_service = cls()
+        
+        # Verify it actually loaded
+        if cls._data_loaded and cls._global_instruments_data:
+            instrument_count = len([k for k in cls._global_instruments_data.keys() if not k.startswith('_')])
+            logger.info(f"Successfully reloaded {instrument_count} instruments from MinIO")
+        else:
+            logger.error("Failed to reload instruments - cache is still empty")
+        
+        logger.info("Instruments metadata force reload completed")
 
     @classmethod
     def get_cache_info(cls) -> dict:
@@ -377,7 +387,9 @@ class InstrumentService:
             "is_loaded": cls._data_loaded,
             "has_data": cls._global_instruments_data is not None,
             "instrument_count": len([k for k in cls._global_instruments_data.keys() if not k.startswith('_')]) if cls._global_instruments_data else 0,
-            "last_updated": cls._global_instruments_data.get("_updated", "unknown") if cls._global_instruments_data else "unknown"
+            "last_updated": cls._global_instruments_data.get("_updated", "unknown") if cls._global_instruments_data else "unknown",
+            "data_loaded_flag": cls._data_loaded,  # For debugging
+            "has_global_data": cls._global_instruments_data is not None  # For debugging
         }
 
 # Service should be instantiated with dependency injection
