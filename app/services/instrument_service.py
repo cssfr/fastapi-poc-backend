@@ -98,14 +98,17 @@ class InstrumentService:
             first_date = available_dates[0]
             last_date = available_dates[-1]
             
-            if source_resolution == "1Y":
+            if source_resolution in ["1Y", "1Ys"]:
                 # Build paths for yearly data: ohlcv/1Y/symbol=BTC/year=2017/BTC_2017.parquet
+                # or ohlcv/1Ys/symbol=BTC/year=2024/BTC_2024.parquet
                 first_path = f"s3://{settings.minio_bucket}/ohlcv/{source_resolution}/symbol={symbol}/year={first_date}/{symbol}_{first_date}.parquet"
                 last_path = f"s3://{settings.minio_bucket}/ohlcv/{source_resolution}/symbol={symbol}/year={last_date}/{symbol}_{last_date}.parquet"
-            else:
+            elif source_resolution == "1m":
                 # Build paths for daily data: ohlcv/1m/symbol=DAX/date=2013-10-01/DAX_2013-10-01.parquet
                 first_path = f"s3://{settings.minio_bucket}/ohlcv/{source_resolution}/symbol={symbol}/date={first_date}/{symbol}_{first_date}.parquet"
                 last_path = f"s3://{settings.minio_bucket}/ohlcv/{source_resolution}/symbol={symbol}/date={last_date}/{symbol}_{last_date}.parquet"
+            else:
+                raise ValueError(f"Unsupported source resolution: {source_resolution}")
             
             # Query actual data to get min/max timestamps
             earliest_query = f"""

@@ -11,7 +11,7 @@ class OHLCVRequest(BaseModel):
     start_date: date
     end_date: date
     timeframe: str = Field(default="1d", description="Timeframe")
-    source_resolution: str = Field(default="1Y", description="Source data resolution (1m or 1Y)")
+    source_resolution: str = Field(default="1Y", description="Source data resolution (1Ys or 1Y)")
     
     @validator('symbol')
     def normalize_symbol(cls, v):
@@ -28,8 +28,8 @@ class OHLCVRequest(BaseModel):
     @validator('source_resolution')
     def validate_source_resolution(cls, v):
         """Validate source resolution"""
-        if v not in ["1m", "1Y"]:
-            raise ValueError('source_resolution must be either "1m" or "1Y"')
+        if v not in settings.valid_source_resolutions:
+            raise ValueError(f'source_resolution must be one of: {settings.valid_source_resolutions}')
         return v
     
     @validator('end_date')
@@ -56,7 +56,7 @@ class OHLCVResponse(BaseModel):
     """Response model for OHLCV data"""
     symbol: str
     timeframe: str
-    source_resolution: str = Field(default="1Y", description="Source data resolution used (1m or 1Y)")
+    source_resolution: str = Field(default="1Y", description="Source data resolution used (1Ys or 1Y)")
     start_date: str
     end_date: str
     count: int

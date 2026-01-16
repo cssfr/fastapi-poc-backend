@@ -48,13 +48,16 @@ class MarketDataService:
         
         return s3_paths
     
-    def _build_s3_paths(self, symbol: str, start_date: date, end_date: date, source_resolution: str = "1m") -> List[str]:
+    def _build_s3_paths(self, symbol: str, start_date: date, end_date: date, source_resolution: str = "1Y") -> List[str]:
         """Build list of S3 paths for the date range based on source resolution"""
-        if source_resolution == "1Y":
+        if source_resolution in ["1Y", "1Ys"]:
+            # Both 1Y and 1Ys use yearly file structure
             return self._build_yearly_paths(symbol, start_date, end_date, source_resolution)
-        else:
-            # Default to daily paths for 1m and any other resolution
+        elif source_resolution == "1m":
+            # 1m uses daily file structure
             return self._build_daily_paths(symbol, start_date, end_date, source_resolution)
+        else:
+            raise ValueError(f"Unsupported source resolution: {source_resolution}")
     
     def _get_interval_seconds(self, timeframe: str) -> int:
         """Get interval in seconds using centralized config"""
@@ -67,9 +70,8 @@ class MarketDataService:
     
     def _validate_source_resolution(self, source_resolution: str):
         """Validate that source resolution is supported"""
-        valid_resolutions = ["1m", "1Y"]
-        if source_resolution not in valid_resolutions:
-            raise ValueError(f"Invalid source resolution: {source_resolution}. Must be one of: {valid_resolutions}")
+        if source_resolution not in settings.valid_source_resolutions:
+            raise ValueError(f"Invalid source resolution: {source_resolution}. Must be one of: {settings.valid_source_resolutions}")
     
     def _estimate_record_count(self, start_date: date, end_date: date, timeframe: str) -> int:
         """Estimate records - business logic stays in service"""
@@ -192,11 +194,15 @@ class MarketDataService:
     
     def _optimize_source_resolution(self, timeframe: str, days_requested: int) -> str:
         """Choose optimal source resolution based on timeframe and date range"""
-        # For short periods with minute-level timeframes, use 1m source
+        # For very short periods with minute-level timeframes, prefer 1Ys (highest granularity - 1-second data)
+        if timeframe in ["1m", "5m"] and days_requested <= 7:
+            return "1Ys"
+        
+        # For short periods with minute-level timeframes, use 1m source (daily files with 1-minute data)
         if timeframe in ["1m", "5m", "15m"] and days_requested <= 30:
             return "1m"
         
-        # For longer periods or larger timeframes, use 1Y source
+        # For longer periods or larger timeframes, use 1Y source (yearly files with 1-minute data)
         return "1Y"
     
     async def get_ohlcv_data(
@@ -292,13 +298,9 @@ class MarketDataService:
         
         try:
             # Choose query strategy based on optimized parameters
-            if optimized_source == "1m" and adjusted_timeframe == "1m":
-                # Raw 1m data from 1m source - no aggregation needed
-                data = await self.repository.query_ohlcv_raw(s3_paths, symbol, start_unix, end_unix)
-            else:
-                # Aggregated data or 1Y source (always needs date filtering)
-                interval_seconds = self._get_interval_seconds(adjusted_timeframe)
-                data = await self.repository.query_ohlcv_aggregated(s3_paths, symbol, start_unix, end_unix, interval_seconds)
+            # Both 1Y and 1Ys sources always need aggregation (yearly files contain raw data)
+            interval_seconds = self._get_interval_seconds(adjusted_timeframe)
+            data = await self.repository.query_ohlcv_aggregated(s3_paths, symbol, start_unix, end_unix, interval_seconds)
             
             # 8. VALIDATE RESULT SIZE - prevent memory issues
             self._validate_result_size(data, symbol, adjusted_timeframe)

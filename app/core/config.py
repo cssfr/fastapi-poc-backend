@@ -32,6 +32,9 @@ class Settings(BaseSettings):
     # OHLCV Request Limits - Updated for yearly timeframes
     max_records_per_request: int = 50000
     
+    # Valid source resolutions for OHLCV data
+    valid_source_resolutions: List[str] = ["1m", "1Y", "1Ys"]
+    
     # SINGLE SOURCE OF TRUTH - All timeframe configuration
     supported_timeframes: List[str] = ["1m", "3m", "5m", "10m", "15m", "30m", "1h", "4h", "1d", "1w", "1M", "1Y"]
     
