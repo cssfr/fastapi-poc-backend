@@ -19,3 +19,4 @@ __pycache__/
 
 # Lockfiles (optional if not using in production)
 requirements.lock.txt
+PLAN.md
